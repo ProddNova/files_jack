@@ -3,6 +3,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { getHeight } from './terrain.js';
 import { clamp } from './util.js';
+import { DRONE_FOV } from './drone.js';
 
 const EYE = 0.62;
 const BODY = 0.2;
@@ -135,10 +136,10 @@ export function createWalk({ camera, canvas, objects, onExit, audio }) {
     active = false;
     ui.classList.remove('show');
     document.body.classList.remove('walking');
-    camera.fov = 45;
-    camera.near = 0.3;
+    camera.fov = DRONE_FOV;
+    camera.near = 0.1;
     camera.updateProjectionMatrix();
-    onExit();
+    onExit(new THREE.Vector3(pos.x, y, pos.z), yaw, pitch);
   }
 
   return {

@@ -1,4 +1,5 @@
 import * as THREE from '../vendor/three.module.min.js';
+import { L } from './textures.js';
 
 // Small seeded random generator, so every object rebuilds the same after a reload.
 export function rng(seed) {
@@ -89,6 +90,14 @@ const UNIT = {
   arch: flat(halfDisc),
 };
 
+// Leaf clump shapes that get rounded lighting
+const SOFT_SHAPES = new Set(['ico', 'ico1', 'dode', 'octa', 'cone8']);
+
+function hash3(x, y, z) {
+  const h = Math.sin(Math.round(x) * 127.1 + Math.round(y) * 311.7 + Math.round(z) * 74.7) * 43758.5453;
+  return h - Math.floor(h);
+}
+
 const tapered = new Map();
 export function taperedCylinder(top, bottom, segs) {
   const key = `${top}|${bottom}|${segs}`;
@@ -135,19 +144,28 @@ export class GeoBuilder {
     }
     const bx2 = ny * tz, by2 = nz * tx - nx * tz, bz2 = -ny * tx;
     const P = this.pos, Nn = this.nor, Cc = this.col, U = this.uv, Ly = this.lay;
+    const sc = this.soft;
     for (let k = 0; k < 3; k++) {
       const x = k === 0 ? ax : k === 1 ? bx : cx;
       const y = k === 0 ? ay : k === 1 ? by : cy;
       const z = k === 0 ? az : k === 1 ? bz : cz;
       P.push(x, y, z);
-      Nn.push(nx, ny, nz);
+      if (sc) {
+        // Normals point away from the clump center: the canopy shades like one
+        // soft volume instead of many flat facets (a common trick for stylized trees).
+        let rx = x - sc[0], ry = y - sc[1], rz = z - sc[2];
+        const rl = Math.hypot(rx, ry, rz) || 1;
+        rx = rx / rl * 0.75 + nx * 0.25; ry = ry / rl * 0.75 + ny * 0.25; rz = rz / rl * 0.75 + nz * 0.25;
+        const ql = Math.hypot(rx, ry, rz) || 1;
+        Nn.push(rx / ql, ry / ql, rz / ql);
+      } else Nn.push(nx, ny, nz);
       Cc.push(color.r, color.g, color.b);
       U.push(x * tx + z * tz, x * bx2 + y * by2 + z * bz2);
       Ly.push(layer);
     }
   }
 
-  addGeo(geo, matrix, color, layer = this.layer) {
+  addGeo(geo, matrix, color, layer = this.layer, soft = null) {
     const p = geo.attributes.position.array;
     const e = matrix.elements;
     const t = [];
@@ -159,20 +177,34 @@ export class GeoBuilder {
         e[2] * x + e[6] * y + e[10] * z + e[14],
       );
     }
+    if (soft) {
+      // Lumpy outline: each corner moves in or out by a noise of its position,
+      // so corners shared by several triangles move together and stay joined.
+      for (let i = 0; i < t.length; i += 3) {
+        const k = (hash3(t[i] * 7.3, t[i + 1] * 7.3, t[i + 2] * 7.3) - 0.5) * 0.3;
+        t[i] += (t[i] - soft[0]) * k;
+        t[i + 1] += (t[i + 1] - soft[1]) * k;
+        t[i + 2] += (t[i + 2] - soft[2]) * k;
+      }
+    }
+    this.soft = soft;
     for (let i = 0; i < t.length; i += 9) {
       this._tri(t[i], t[i + 1], t[i + 2], t[i + 3], t[i + 4], t[i + 5], t[i + 6], t[i + 7], t[i + 8], color, layer);
     }
+    this.soft = null;
   }
 
   // shape: a name from UNIT or a geometry. rot: [x, y, z] euler angles (YXZ order).
   add(shape, pos, scale, color, rot, layer = this.layer) {
-    const geo = typeof shape === 'string' ? UNIT[shape] : shape;
+    // Leaf clumps get more detail and rounded lighting (see _tri)
+    const soft = SOFT_SHAPES.has(shape) && (layer === L.LEAF || layer === L.EVERGREEN);
+    const geo = typeof shape === 'string' ? UNIT[soft && shape !== 'cone8' ? 'ico1' : shape] : shape;
     _p.set(pos[0], pos[1], pos[2]);
     _s.set(scale[0], scale[1], scale[2]);
     if (rot) _q.setFromEuler(_e.set(rot[0], rot[1], rot[2], 'YXZ'));
     else _q.identity();
     _m.compose(_p, _q, _s);
-    this.addGeo(geo, _m, color, layer);
+    this.addGeo(geo, _m, color, layer, soft ? [pos[0], pos[1], pos[2]] : null);
   }
 
   tri(a, b, c, color, layer = this.layer) {

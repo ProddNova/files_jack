@@ -13,7 +13,8 @@ import { TEX } from './shaders.js';
 import { createPost } from './post.js';
 import { createDecor } from './decor.js';
 import { createLife } from './life.js';
-import { CameraRig } from './controls.js';
+import { DroneRig, DRONE_FOV } from './drone.js';
+import { createReflection } from './reflect.js';
 import { setupInput } from './input.js';
 import { createTools, TOOL_DEFS, translateData } from './tools.js';
 import { createEditor } from './editor.js';
@@ -47,15 +48,19 @@ try {
   throw err;
 }
 const lowPower = (navigator.hardwareConcurrency || 4) <= 2;
-if (!prefs.quality) prefs.quality = lowPower ? 'bassa' : 'alta';
+if (!prefs.quality) prefs.quality = lowPower ? 'bassa' : 'ultra';
+// The shader pack is new: turn it on once for everyone who can run it
+if (prefs.gfx !== 2) { prefs.gfx = 2; if (!lowPower) prefs.quality = 'ultra'; }
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.NeutralToneMapping;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.3, 800);
-const rig = new CameraRig(camera);
+const camera = new THREE.PerspectiveCamera(DRONE_FOV, window.innerWidth / window.innerHeight, 0.1, 900);
+// Layer 1: small things (grass, cursor, selection) the water reflection skips
+camera.layers.enable(1);
+const rig = new DroneRig(camera, { topAt: (x, z) => objectTop(x, z) });
 TEX.uTex.value = createTextureArray(renderer, lowPower ? 256 : 512);
 scene.add(createTerrain(0));
 TEX.uHeight.value = heightTexture;
@@ -64,6 +69,7 @@ const world = createWorld(scene, { lowPower, renderer });
 const decor = createDecor(scene, { lowPower });
 const life = createLife(scene);
 const post = createPost(renderer, scene, camera);
+const reflection = createReflection(renderer, scene, camera, world);
 let usePost = true;
 
 // ---------- Seasons ----------
@@ -128,15 +134,22 @@ const TREE_MIX = {
 };
 const treeMix = () => TREE_MIX[getScenario()] || TREE_MIX.riviera;
 
+// "Ultra" is the full shader pack. Each step down drops the most expensive effect.
 const QUALITY = {
-  alta: { dpr: 2, post: true, shadow: 2048, label: 'Alta' },
-  media: { dpr: 1.5, post: true, shadow: 2048, label: 'Media' },
-  bassa: { dpr: 1, post: false, shadow: 1024, label: 'Bassa' },
+  ultra: { dpr: 2, post: true, ao: true, rays: true, refl: 0.5, sharpen: 0.18, shadow: 4096, label: '✨ Ultra' },
+  alta: { dpr: 1.6, post: true, ao: false, rays: true, refl: 0.4, sharpen: 0.22, shadow: 2048, label: 'Alta' },
+  media: { dpr: 1.4, post: true, ao: false, rays: false, refl: 0, sharpen: 0.2, shadow: 2048, label: 'Media' },
+  bassa: { dpr: 1, post: false, ao: false, rays: false, refl: 0, shadow: 1024, label: 'Bassa' },
 };
+const QUALITY_ORDER = ['ultra', 'alta', 'media', 'bassa'];
 function applyQuality() {
   const q = QUALITY[prefs.quality] || QUALITY.alta;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.dpr));
   usePost = q.post;
+  post.setLevel(q);
+  reflection.set(q.post && q.refl > 0, q.refl || 0.5);
+  world.setFogMul(q.post ? 3.5 : 1);
+  TEX.uFx.value = q.post ? 1 : 0;
   world.setShadowSize(q.shadow);
   resize();
 }
@@ -147,14 +160,23 @@ function resize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   post.setSize(w, h);
+  reflection.setSize();
 }
 window.addEventListener('resize', resize);
 window.visualViewport?.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 250));
 
+const sunTmp = new THREE.Color();
 function draw() {
-  if (usePost) post.render();
-  else renderer.render(scene, camera);
+  if (usePost) {
+    reflection.update();
+    const P = post.fx.sun;
+    P.dir.copy(TEX.uSunDir.value);
+    P.color.copy(sunTmp.copy(TEX.uSunCol.value).multiplyScalar(2.2));
+    P.fog.copy(scene.fog.color);
+    P.density = 0.42 / world.fogFar;
+    post.render(elapsed);
+  } else renderer.render(scene, camera);
 }
 
 // ---------- UI helpers ----------
@@ -188,7 +210,20 @@ function build(obj) {
   obj.surfaceAt = null;
   Object.assign(obj, built);
   obj.fp = footprint(obj.kind, obj.data);
+  obj.topY = new THREE.Box3().setFromObject(obj.group).max.y;
   return true;
+}
+
+// Highest roof or treetop at (x, z): the drone flies over it, not through it
+function objectTop(x, z) {
+  let top = -Infinity;
+  for (const o of objects) {
+    if (!o.fp || !(o.topY > top)) continue;
+    const b = o.bounds;
+    if (b && Math.hypot(b.x - x, b.z - z) > b.r + 1) continue;
+    if (pointIn(o.fp, x, z, 0.35)) top = o.topY;
+  }
+  return top;
 }
 
 function attach(obj) {
@@ -290,6 +325,7 @@ let selected = null;
 const selMat = new THREE.MeshBasicMaterial({ color: '#ffd166', transparent: true, opacity: 0.3, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
 const selLineMat = new THREE.LineBasicMaterial({ color: '#ffd166', transparent: true, depthTest: false });
 const selGroup = new THREE.Group();
+selGroup.layers.set(1);
 scene.add(selGroup);
 
 function clearSelGroup() {
@@ -323,19 +359,22 @@ function updateSelection() {
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
   const line = closed ? new THREE.LineLoop(geo, selLineMat) : new THREE.Line(geo, selLineMat);
   line.renderOrder = 31;
-  selGroup.add(line);
+  line.layers.set(1);
+    selGroup.add(line);
   if (closed) {
     const shape = new THREE.Shape(pts.map((p) => new THREE.Vector2(p.x, -p.z)));
     const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2), selMat);
     mesh.position.y = Math.max(...pts.map((p) => p.y));
     mesh.renderOrder = 30;
+    mesh.layers.set(1);
     selGroup.add(mesh);
   } else {
     for (const p of pts) {
       const dot = new THREE.Mesh(new THREE.CircleGeometry(fp.half + 0.25, 12).rotateX(-Math.PI / 2), selMat);
       dot.position.copy(p);
       dot.renderOrder = 30;
-      selGroup.add(dot);
+      dot.layers.set(1);
+    selGroup.add(dot);
     }
   }
 }
@@ -433,6 +472,7 @@ const cursor = new THREE.Mesh(
 );
 cursor.renderOrder = 20;
 cursor.visible = false;
+cursor.layers.set(1);
 scene.add(cursor);
 
 // ---------- Save, load, islands ----------
@@ -581,7 +621,16 @@ function pick(x, y) {
 
 const helpEl = $('#help');
 const menuEl = $('#menu');
-const walk = createWalk({ camera, canvas, objects, audio, onExit: () => { input.reset(); toast('Bentornato in vista dall\'alto', 1400); } });
+const walk = createWalk({
+  camera, canvas, objects, audio,
+  onExit: (pos, yaw, pitch) => {
+    input.reset();
+    // Take off from where you were standing
+    rig.setPose(pos, yaw, pitch);
+    rig.goal.y += 3;
+    toast('🚁 Di nuovo in volo', 1400);
+  },
+});
 
 const input = setupInput(canvas, {
   rig,
@@ -650,6 +699,47 @@ for (const t of TOOL_DEFS) {
   b.innerHTML = `<span>${t.icon}</span><small>${t.label}</small>`;
   b.addEventListener('click', () => setTool(t.id));
   toolbar.appendChild(b);
+}
+
+// ---------- Drone controls ----------
+
+{
+  const joy = $('#djoy'), knob = $('#dknob');
+  let id = null, cx = 0, cy = 0;
+  const move = (e) => {
+    let dx = e.clientX - cx, dy = e.clientY - cy;
+    const d = Math.hypot(dx, dy), max = 40;
+    if (d > max) { dx = (dx / d) * max; dy = (dy / d) * max; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    // A small dead zone in the middle, then speed grows smoothly
+    const k = (v) => Math.sign(v) * Math.max(0, Math.abs(v) / max - 0.12) / 0.88;
+    rig.setStick(k(dx), k(dy));
+  };
+  joy.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    audio.unlock();
+    const r = joy.getBoundingClientRect();
+    id = e.pointerId;
+    cx = r.left + r.width / 2;
+    cy = r.top + r.height / 2;
+    try { joy.setPointerCapture(id); } catch { /* ignore */ }
+    move(e);
+  });
+  joy.addEventListener('pointermove', (e) => { if (e.pointerId === id) move(e); });
+  const end = (e) => {
+    if (e.pointerId !== id) return;
+    id = null;
+    knob.style.transform = '';
+    rig.setStick(0, 0);
+  };
+  joy.addEventListener('pointerup', end);
+  joy.addEventListener('pointercancel', end);
+  for (const [sel, v] of [['#d-up', 1], ['#d-down', -1]]) {
+    const b = $(sel);
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch { /* ignore */ } rig.setLift(v); });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, () => rig.setLift(0));
+  }
+  document.body.classList.toggle('no-joy', !!prefs.noJoy);
 }
 
 // ---------- Buttons ----------
@@ -794,13 +884,18 @@ function renderMenu() {
   row(atm, 'Stagione', Object.entries(SEASONS).map(([id, se]) => [se.icon + ' ' + se.name, season === id, () => { applySeason(id); refreshAll(); scheduleSave(); }]));
 
   const gfx = section('🎨 Grafica');
-  row(gfx, 'Qualità', Object.entries(QUALITY).map(([k, q]) => [q.label, prefs.quality === k, () => { prefs.quality = k; savePrefs(); applyQuality(); }]));
+  // Choosing by hand also stops the automatic lowering
+  row(gfx, 'Qualità (Ultra: riflessi, raggi di sole, occlusione)', Object.entries(QUALITY).map(([k, q]) => [q.label, prefs.quality === k, () => { prefs.quality = k; prefs.fixedQuality = true; savePrefs(); applyQuality(); }]));
   row(gfx, 'Effetto miniatura', [['Sì', !!prefs.tilt, () => setTilt(true)], ['No', !prefs.tilt, () => setTilt(false)]]);
 
   const ctl = section('👆 Comandi');
   row(ctl, 'Piazzamento', [
     ['Con conferma ✓', !prefs.quick, () => { prefs.quick = false; savePrefs(); }],
     ['Rapido', !!prefs.quick, () => { prefs.quick = true; savePrefs(); }],
+  ]);
+  row(ctl, 'Joystick del drone', [
+    ['🕹️ Sì', !prefs.noJoy, () => { prefs.noJoy = false; savePrefs(); document.body.classList.remove('no-joy'); }],
+    ['Solo gesti', !!prefs.noJoy, () => { prefs.noJoy = true; savePrefs(); document.body.classList.add('no-joy'); }],
   ]);
   row(ctl, 'Suono', [['🔊 Sì', !audio.isMuted(), () => { audio.unlock(); audio.setMuted(false); }], ['🔇 No', audio.isMuted(), () => audio.setMuted(true)]]);
   row(ctl, null, [['❔ Guida completa', false, () => { closeMenu(); openHelp(); }]]);
@@ -886,15 +981,16 @@ function adaptQuality(dtMs) {
   perfCheck += dtMs;
   if (perfCheck < 3000) return;
   perfCheck = 0;
-  if (frameAvg > 34 && lowered < 2 && prefs.quality !== 'bassa') {
+  if (frameAvg > 34 && lowered < 3 && prefs.quality !== 'bassa' && !prefs.fixedQuality) {
     lowered++;
-    prefs.quality = prefs.quality === 'alta' ? 'media' : 'bassa';
+    prefs.quality = QUALITY_ORDER[Math.min(QUALITY_ORDER.indexOf(prefs.quality) + 1, QUALITY_ORDER.length - 1)];
     savePrefs();
     applyQuality();
     toast('Grafica ridotta per restare fluido (cambiala dal menu ⚙️)', 2600);
   }
 }
 
+const focusTmp = new THREE.Vector3();
 const clock = new THREE.Clock();
 let elapsed = 0;
 let first = true;
@@ -907,7 +1003,14 @@ function frame() {
     input.update(dt);
     rig.update(dt);
   }
-  const focus = walk.active ? walk.position : rig.target;
+  // Shadows are sharpest around this point: what you look at, but not too far ahead
+  let focus = rig.target;
+  if (walk.active) focus = walk.position;
+  else {
+    const dx = rig.target.x - camera.position.x, dz = rig.target.z - camera.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 26) focus = focusTmp.set(camera.position.x + dx / d * 26, 0, camera.position.z + dz / d * 26);
+  }
   world.update(dt, elapsed, camera, focus);
   decor.update(elapsed, world.night);
   life.update(dt, elapsed, world.night);
@@ -941,4 +1044,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Handy for debugging from the console
-window.borgo = { objects, rig, world, setTool, undo, prefs, renderer, walk, select, editor, add, freshIsland, refreshAll, applySeason, get tool() { return currentHandler(); } };
+window.borgo = { objects, rig, world, post, camera, reflection, setTool, undo, prefs, renderer, walk, select, editor, add, freshIsland, refreshAll, applySeason, get tool() { return currentHandler(); } };

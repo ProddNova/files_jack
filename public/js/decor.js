@@ -4,6 +4,7 @@ import { rng, col, GeoBuilder } from './util.js';
 import { getHeight, pathAt, ISLAND_R, oasis } from './terrain.js';
 import { MAT, isNature } from './builders.js';
 import { pointIn } from './placement.js';
+import { TEX } from './shaders.js';
 
 const CELL = 4;
 
@@ -44,7 +45,22 @@ export function createDecor(scene, { lowPower }) {
   const flowers = scatter(r, lowPower ? 500 : 900, any);
   const rocks = scatter(r, 140, any);
 
-  const grassMesh = new THREE.InstancedMesh(tuftGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 1 }), tufts.length);
+  const grassMat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 1 });
+  // Blades bend more toward the tip; neighbors move together, like a gust passing
+  grassMat.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = TEX.uTime;
+    sh.uniforms.uWind = TEX.uWind;
+    sh.vertexShader = 'uniform float uTime;\nuniform float uWind;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+  {
+    vec2 ip = instanceMatrix[3].xz;
+    float gust = sin(uTime * 1.3 + ip.x * 0.25 + ip.y * 0.18) * 0.5 + 0.5;
+    float k = transformed.y * transformed.y * (0.35 + uWind * 0.9);
+    transformed.x += (sin(uTime * 2.4 + ip.x * 1.7 + ip.y) * 0.3 + gust * 0.7) * k;
+    transformed.z += cos(uTime * 2.1 + ip.y * 1.9) * 0.25 * k;
+  }`);
+  };
+  grassMat.customProgramCacheKey = () => 'grass-wind';
+  const grassMesh = new THREE.InstancedMesh(tuftGeometry(), grassMat, tufts.length);
   grassMesh.receiveShadow = true;
   const flowerColors = ['#ffffff', '#f6d743', '#c99de8', '#f08bb0', '#ffffff'].map(col);
   const flowerMesh = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.06, 0), new THREE.MeshStandardMaterial({ roughness: 0.8 }), flowers.length);
@@ -59,6 +75,9 @@ export function createDecor(scene, { lowPower }) {
     m.frustumCulled = false;
     scene.add(m);
   }
+  // Too small to matter in the water reflection: skip them there (layer 1)
+  grassMesh.layers.set(1);
+  flowerMesh.layers.set(1);
 
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
   // Scenario and season rules: no grass on desert sand, little under snow, none on volcanic ash

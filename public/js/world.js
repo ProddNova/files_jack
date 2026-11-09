@@ -2,7 +2,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { GeoBuilder, rng, col } from './util.js';
 import { MAT } from './builders.js';
 import { getHeight, heightTexture, HEIGHT_UV } from './terrain.js';
-import { TEX } from './shaders.js';
+import { TEX, CLOUD_GLSL } from './shaders.js';
 import { L } from './textures.js';
 
 const TIMES = [
@@ -37,9 +37,9 @@ const TIMES = [
 ];
 
 export const WEATHER = [
-  { id: 'sereno', name: 'Sereno', icon: '☀️', clouds: 7, cloudTint: 1, light: 1, rain: 0, fog: 1 },
-  { id: 'nuvoloso', name: 'Nuvoloso', icon: '⛅', clouds: 16, cloudTint: 0.85, light: 0.7, rain: 0, fog: 0.8 },
-  { id: 'pioggia', name: 'Pioggia', icon: '🌧️', clouds: 22, cloudTint: 0.6, light: 0.45, rain: 1, fog: 0.55 },
+  { id: 'sereno', name: 'Sereno', icon: '☀️', cover: 0.38, wind: 0.3, light: 1, rain: 0, fog: 1 },
+  { id: 'nuvoloso', name: 'Nuvoloso', icon: '⛅', cover: 0.72, wind: 0.6, light: 0.7, rain: 0, fog: 0.8 },
+  { id: 'pioggia', name: 'Pioggia', icon: '🌧️', cover: 0.97, wind: 1, light: 0.45, rain: 1, fog: 0.55 },
 ];
 
 const COLOR_KEYS = ['sunColor', 'hemiSky', 'hemiGround', 'skyTop', 'skyHorizon', 'fog', 'water', 'shallow'];
@@ -66,22 +66,80 @@ function lerpState(out, a, b, t) {
 }
 
 const SKY_VERT = 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+// Sky: color gradient with a hazy horizon, a halo and a bright disc for the
+// sun (bright enough to bloom), and a layer of clouds lit from the sun's side.
 const SKY_FRAG = /* glsl */ `
-uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform vec3 sunColor; uniform float glow; uniform float grey;
+uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform vec3 sunColor;
+uniform float glow; uniform float grey; uniform float uTime; uniform float uCloud; uniform float uLight; uniform vec3 uCamPos;
 varying vec3 vDir;
+${CLOUD_GLSL}
 void main() {
   vec3 d = normalize(vDir);
   float h = d.y;
-  vec3 c = mix(horizon, top, smoothstep(0.0, 0.55, h));
-  c = mix(c, horizon * 0.9, smoothstep(0.0, -0.3, h));
-  float sd = max(dot(d, normalize(sunDir)), 0.0);
-  c += sunColor * (pow(sd, 12.0) * 0.35 + pow(sd, 90.0) * 0.6) * glow * (1.0 - grey);
-  c += sunColor * smoothstep(0.9985, 0.9993, sd) * 1.2 * (1.0 - grey);
+  vec3 sd3 = normalize(sunDir);
+  vec3 c = mix(horizon, top, pow(smoothstep(-0.02, 0.62, h), 0.7));
+  c = mix(c, horizon * 0.82, smoothstep(0.0, -0.25, h));
+  float sd = max(dot(d, sd3), 0.0);
+  float clear = 1.0 - grey;
+  // Wide warm glow over the horizon on the sun's side, then halo and disc
+  c += sunColor * pow(sd, 3.0) * 0.18 * glow * (1.0 - smoothstep(0.0, 0.5, h)) * clear;
+  c += sunColor * (pow(sd, 10.0) * 0.28 + pow(sd, 80.0) * 0.55 + pow(sd, 700.0) * 1.6) * glow * clear;
+  float disc = smoothstep(0.99935, 0.99965, sd);
+  c += sunColor * disc * 9.0 * clear;
+  if (h > 0.0) {
+    vec2 p = uCamPos.xz + d.xz * (CLOUD_H - uCamPos.y) / max(h, 0.015);
+    float dens = cloudDensity(p, uTime, uCloud, 5);
+    if (dens > 0.002) {
+      // Light coming through the cloud: look a little toward the sun
+      vec2 toSun = sd3.xz / max(sd3.y, 0.12) * 7.0;
+      float occ = cloudDensity(p + toSun, uTime, uCloud, 3) * 0.7 + cloudDensity(p + toSun * 2.4, uTime, uCloud, 3) * 0.5;
+      float lit = exp(-occ * 1.6);
+      vec3 amb = mix(horizon, top, 0.45) * 0.78;
+      vec3 sunLit = sunColor * uLight * (0.55 + 0.75 * lit);
+      vec3 cc = amb + sunLit * 0.8;
+      // Thin edges glow when they pass in front of the sun
+      cc += sunColor * pow(sd, 6.0) * (1.0 - dens) * 1.4 * uLight;
+      cc = mix(cc, vec3(dot(cc, vec3(0.3, 0.59, 0.11))) * 0.62, grey * 0.85);
+      float a = dens * smoothstep(0.0, 0.14, h) * 0.96;
+      c = mix(c, cc, a);
+    }
+  }
   float l = dot(c, vec3(0.3, 0.59, 0.11));
-  c = mix(c, vec3(l) * 0.9, grey);
+  c = mix(c, vec3(l) * 0.9, grey * 0.6);
   gl_FragColor = vec4(c, 1.0);
   #include <colorspace_fragment>
 }`;
+
+// Round sea that follows the camera: rings close together near the middle
+// (where the waves need detail) and far apart toward the horizon.
+function seaGeometry(seg) {
+  const radii = [0];
+  while (radii[radii.length - 1] < 1100) {
+    const r = radii[radii.length - 1];
+    radii.push(r + Math.max(1.1, r * 0.075));
+  }
+  const pos = [0, 0, 0];
+  for (let i = 1; i < radii.length; i++) {
+    for (let k = 0; k < seg; k++) {
+      const a = (k / seg) * Math.PI * 2;
+      pos.push(Math.cos(a) * radii[i], Math.sin(a) * radii[i], 0);
+    }
+  }
+  const idx = [];
+  for (let k = 0; k < seg; k++) idx.push(0, 1 + k, 1 + ((k + 1) % seg));
+  for (let i = 1; i < radii.length - 1; i++) {
+    const a0 = 1 + (i - 1) * seg, b0 = 1 + i * seg;
+    for (let k = 0; k < seg; k++) {
+      const k1 = (k + 1) % seg;
+      idx.push(a0 + k, b0 + k, b0 + k1, a0 + k, b0 + k1, a0 + k1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(pos.length).map((_, i) => (i % 3 === 2 ? 1 : 0)), 3));
+  g.setIndex(idx);
+  return g;
+}
 
 export function createWorld(scene, { lowPower, renderer }) {
   // Sky dome with a soft gradient and the sun
@@ -89,12 +147,13 @@ export function createWorld(scene, { lowPower, renderer }) {
     top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() },
     sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunColor: { value: new THREE.Color() },
     glow: { value: 1 }, grey: { value: 0 },
+    uTime: TEX.uTime, uCloud: TEX.uCloud, uLight: { value: 1 }, uCamPos: { value: new THREE.Vector3(0, 20, 40) },
   };
   const skyMat = new THREE.ShaderMaterial({
     uniforms: skyUniforms, side: THREE.BackSide, depthWrite: false, fog: false,
     vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
   });
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(400, 32, 16), skyMat);
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(400, 48, 24), skyMat);
   sky.renderOrder = -10;
   scene.add(sky);
 
@@ -131,7 +190,7 @@ export function createWorld(scene, { lowPower, renderer }) {
   sun.castShadow = true;
   sun.shadow.mapSize.set(lowPower ? 1024 : 2048, lowPower ? 1024 : 2048);
   const sc = sun.shadow.camera;
-  sc.left = -34; sc.right = 34; sc.top = 34; sc.bottom = -34; sc.near = 1; sc.far = 160;
+  sc.left = -38; sc.right = 38; sc.top = 38; sc.bottom = -38; sc.near = 1; sc.far = 180;
   sun.shadow.bias = -0.0005;
   sun.shadow.normalBias = 0.035;
   sun.shadow.radius = 3;
@@ -150,19 +209,24 @@ export function createWorld(scene, { lowPower, renderer }) {
     uSunDir: { value: new THREE.Vector3(0, 1, 0) },
     uSunCol: { value: new THREE.Color() },
     uRain: { value: 0 },
+    uRefl: { value: null },
+    uReflMat: { value: new THREE.Matrix4() },
+    uReflOn: { value: 0 },
   };
   const waterMat = new THREE.MeshStandardMaterial({
     color: '#2a8bb2', transparent: true, opacity: 0.9, roughness: 0.06, metalness: 0.0, envMapIntensity: 1.1,
   });
   waterMat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, waterUniforms, { uTex: TEX.uTex });
-    sh.vertexShader = 'uniform float uTime;\nvarying vec2 vWXZ;\n' + sh.vertexShader
+    sh.vertexShader = 'uniform float uTime;\nuniform mat4 uReflMat;\nvarying vec2 vWXZ;\nvarying vec4 vReflUv;\n' + sh.vertexShader
       .replace('#include <begin_vertex>',
         `vec3 transformed = vec3(position);
-         transformed.z += sin(position.x * 0.33 + uTime * 1.1) * 0.06
-           + sin(position.y * 0.41 + uTime * 0.85) * 0.05
-           + sin((position.x + position.y) * 0.9 + uTime * 1.7) * 0.02;`)
-      .replace('#include <project_vertex>', '#include <project_vertex>\n  vWXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+         vec2 sw = (modelMatrix * vec4(position, 1.0)).xz;
+         float fade = 1.0 - smoothstep(60.0, 140.0, length(position.xy));
+         transformed.z += (sin(sw.x * 0.33 + uTime * 1.1) * 0.06
+           + sin(sw.y * 0.41 + uTime * 0.85) * 0.05
+           + sin((sw.x + sw.y) * 0.9 + uTime * 1.7) * 0.02) * fade;`)
+      .replace('#include <project_vertex>', '#include <project_vertex>\n  vWXZ = (modelMatrix * vec4(transformed, 1.0)).xz;\n  vReflUv = uReflMat * modelMatrix * vec4(transformed, 1.0);');
     sh.fragmentShader = `uniform float uTime;
 uniform sampler2D uHeight;
 uniform highp sampler2DArray uTex;
@@ -171,7 +235,11 @@ uniform vec3 uShallow;
 uniform vec3 uSunDir;
 uniform vec3 uSunCol;
 uniform float uRain;
+uniform sampler2D uRefl;
+uniform float uReflOn;
 varying vec2 vWXZ;
+varying vec4 vReflUv;
+vec3 wN = vec3(0.0, 1.0, 0.0);
 ` + sh.fragmentShader
       .replace('#include <color_fragment>', `#include <color_fragment>
   vec2 huv = vWXZ * uHUV.x + uHUV.y;
@@ -194,6 +262,7 @@ varying vec2 vWXZ;
     vec3 n2 = texture(uTex, vec3(w2, ${L.WATER}.0)).xyz * 2.0 - 1.0;
     float rough = 0.55 + uRain * 0.8;
     vec3 nw = normalize(vec3((n1.x + n2.x) * rough, 1.0, (n1.y + n2.y) * rough));
+    wN = nw;
     normal = normalize((viewMatrix * vec4(nw, 0.0)).xyz);
   }`)
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
@@ -202,7 +271,18 @@ varying vec2 vWXZ;
     vec3 hv = normalize(vSun + normalize(vViewPosition));
     float spec = pow(max(dot(normal, hv), 0.0), 220.0);
     reflectedLight.directSpecular += uSunCol * spec * 2.5 * (1.0 - uRain);
-  }`);
+  }`)
+      .replace('#include <opaque_fragment>', `
+  if (uReflOn > 0.0) {
+    // Mirror image of the island, rippled by the waves; stronger at grazing angles (fresnel)
+    float fres = 0.02 + 0.98 * pow(1.0 - max(dot(normal, normalize(vViewPosition)), 0.0), 5.0);
+    vec2 ruv = vReflUv.xy / vReflUv.w + wN.xz * 0.045;
+    vec3 refl = texture(uRefl, clamp(ruv, 0.001, 0.999)).rgb;
+    float k = clamp(fres * 0.92 + 0.1, 0.0, 1.0) * (1.0 - foam) * uReflOn;
+    outgoingLight = mix(outgoingLight, refl, k);
+    diffuseColor.a = mix(diffuseColor.a, 1.0, fres * uReflOn);
+  }
+  #include <opaque_fragment>`);
   };
 
   // Seabed far from the island, so the island's square edge never shows through the water
@@ -213,31 +293,12 @@ varying vec2 vWXZ;
   seabed.position.y = -2.64;
   scene.add(seabed);
 
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(240, 240, lowPower ? 80 : 140, lowPower ? 80 : 140), waterMat);
+  const water = new THREE.Mesh(seaGeometry(lowPower ? 64 : 112), waterMat);
+  water.frustumCulled = false;
   water.rotation.x = -Math.PI / 2;
   water.position.y = -0.02;
   water.receiveShadow = true;
   scene.add(water);
-
-  // Clouds drifting over the island
-  const cloudMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, transparent: true, opacity: 0.95, flatShading: true });
-  const clouds = [];
-  const cr = rng(42);
-  for (let i = 0; i < 22; i++) {
-    const B = new GeoBuilder();
-    const puffs = cr.int(4, 7);
-    for (let k = 0; k < puffs; k++) {
-      const s = cr.range(1.2, 2.6);
-      B.add('ico1', [k * 1.3 - puffs * 0.65, cr.range(-0.3, 0.5), cr.range(-0.9, 0.9)], [s, s * 0.7, s], col('#ffffff'), [cr(), cr(), 0]);
-    }
-    const m = new THREE.Mesh(B.build(), cloudMat);
-    m.position.set(cr.range(-70, 70), cr.range(15, 21), cr.range(-45, 45));
-    m.castShadow = !lowPower;
-    m.userData.speed = cr.range(0.6, 1.3);
-    m.visible = i < 7;
-    scene.add(m);
-    clouds.push(m);
-  }
 
   // Rain: short streaks that follow the camera
   const RAIN = lowPower ? 900 : 1800;
@@ -321,6 +382,9 @@ varying vec2 vWXZ;
   let weatherK = 0;
   let autoCycle = false;
   let autoT = 0;
+  // With the shader pack on, fog is drawn in post-processing: push the simple fog away
+  let fogMul = 1;
+  let fogFar = 210;
 
   function apply() {
     const lightK = 1 - (1 - weather.light) * weatherK;
@@ -333,8 +397,9 @@ varying vec2 vWXZ;
     skyUniforms.horizon.value.copy(cur.skyHorizon);
     skyUniforms.grey.value = weatherK * (1 - weather.light) * 1.2;
     scene.fog.color.copy(cur.fog).lerp(new THREE.Color('#9aa3ad'), weatherK * (1 - weather.light));
-    scene.fog.near = 70 * (1 - weatherK * (1 - weather.fog));
-    scene.fog.far = 210 * (1 - weatherK * (1 - weather.fog) * 0.8);
+    fogFar = 210 * (1 - weatherK * (1 - weather.fog) * 0.8);
+    scene.fog.near = 70 * (1 - weatherK * (1 - weather.fog)) * fogMul;
+    scene.fog.far = fogFar * fogMul;
     waterMat.color.copy(cur.water);
     waterUniforms.uShallow.value.copy(cur.shallow);
     waterUniforms.uSunDir.value.copy(cur.sun);
@@ -343,7 +408,12 @@ varying vec2 vWXZ;
     skyUniforms.sunDir.value.copy(cur.sun);
     skyUniforms.sunColor.value.copy(cur.sunColor);
     skyUniforms.glow.value = cur.glow;
-    cloudMat.color.setScalar(1 - (1 - weather.cloudTint) * weatherK);
+    skyUniforms.uLight.value = Math.min(1, cur.sunInt / 2.9) * lightK;
+    TEX.uSunDir.value.copy(cur.sun);
+    TEX.uSunCol.value.copy(cur.sunColor).multiplyScalar(cur.sunInt * lightK / Math.PI);
+    TEX.uCloud.value = weather.cover;
+    TEX.uWind.value = weather.wind;
+    TEX.uCloudShadow.value = weather.rain ? 0.3 : 0.55;
     MAT.glow.opacity = cur.lamps;
     MAT.pool.opacity = cur.lamps * 0.5;
     MAT.beam.opacity = cur.lamps * 0.22;
@@ -358,9 +428,15 @@ varying vec2 vWXZ;
   refreshEnv();
 
   return {
+    water,
+    waterUniforms,
+    waterMat,
+    sky,
     times: TIMES,
     weathers: WEATHER,
     get timeIndex() { return timeIndex; },
+    get fogFar() { return fogFar; },
+    setFogMul(k) { fogMul = k; apply(); },
     get night() { return cur.lamps; },
     get weather() { return weather.id; },
     get autoCycle() { return autoCycle; },
@@ -378,7 +454,6 @@ varying vec2 vWXZ;
     },
     setWeather(id) {
       weather = WEATHER.find((w) => w.id === id) || WEATHER[0];
-      clouds.forEach((m, i) => { m.visible = i < weather.clouds; });
       rain.visible = weather.rain > 0;
       weatherK = weather.id === 'sereno' ? 0 : 1;
       apply();
@@ -407,11 +482,8 @@ varying vec2 vWXZ;
       sun.position.set(focus.x + cur.sun.x * 70, cur.sun.y * 70, focus.z + cur.sun.z * 70);
       water.position.x = Math.round(camera.position.x / 4) * 4;
       water.position.z = Math.round(camera.position.z / 4) * 4;
-      for (const m of clouds) {
-        if (!m.visible) continue;
-        m.position.x += m.userData.speed * dt * (1 + weatherK);
-        if (m.position.x > 75) m.position.x = -75;
-      }
+      TEX.uTime.value = t;
+      skyUniforms.uCamPos.value.copy(camera.position);
       if (rain.visible) {
         const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
         for (let i = 0; i < RAIN; i++) {
