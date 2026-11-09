@@ -32,9 +32,6 @@ export class DroneRig {
     this._fwd = new THREE.Vector3();
     this.home();
     Object.assign(this.cur, this.goal);
-    camera.fov = DRONE_FOV;
-    camera.near = 0.1;
-    camera.updateProjectionMatrix();
     window.addEventListener('keydown', (e) => {
       if (!this.enabled || e.target.closest?.('input, textarea')) return;
       this.keys.add(e.key.toLowerCase());

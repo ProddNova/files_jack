@@ -7,7 +7,8 @@ La guida completa compare al primo avvio (e con il tasto ❔).
 
 ## Cosa si può fare
 
-- **Drone**: voli liberamente sopra il mondo (joystick, ▲ ▼ per salire e scendere, trascina per guardarti intorno, pizzica per avvicinarti). Passa sopra tetti e alberi da solo. Con 🚶 scendi a terra ad altezza d'uomo: primo passo verso un gioco in prima persona.
+- **Telecamera classica** (gira intorno all'isola, comoda con una mano in verticale) e, dal menu, **drone** a volo libero. Con 🚶 scendi a terra ad altezza d'uomo.
+- **HUD**: minimappa con bussola (tocca un punto per andarci), 👁 per nascondere i comandi, barra degli strumenti compatta con tutto visibile.
 - **Mondi**: terraferma (campagna col fiume, colline, valle alpina, lago tra i colli) o isole (riviera, arcipelago, laguna, monti, bosco d'autunno, deserto, vulcano). Intorno alla mappa c'è sempre un paesaggio fino all'orizzonte: colline, boschi, montagne innevate, isole lontane.
 - **Case (12)** ed **Edifici (11)**: dalla casa ligure al duomo, tutti modificabili dopo (misure, piani, tetto, colori).
 - **Castelli in un gesto**: "Fortezza intera" crea mura dritte, torri sugli angoli, porta con saracinesca e mastio trascinando un rettangolo.
@@ -22,8 +23,8 @@ La guida completa compare al primo avvio (e con il tasto ❔).
 ## Comandi su iPhone
 
 - **Tocco** = anteprima, poi **✓** per costruire. Un trascinamento non costruisce mai.
-- **1 dito** fuori dall'anteprima, o sul cielo: guardi intorno. **2 dita**: pizzica per volare avanti, trascina per scorrere, ruota per girarti.
-- **Joystick** a sinistra e **▲ ▼** a destra per volare (si possono nascondere dal menu).
+- **1 dito** fuori dall'anteprima, o sul mare e sul cielo: giri intorno. **2 dita**: sposti, pizzichi per lo zoom, ruoti.
+- **Minimappa**: tocca un punto per andarci. Il drone (menu) aggiunge joystick e ▲ ▼.
 - Muri, strade, campi, alberi e terreno si disegnano trascinando; il tasto arancione cambia il modo di disegno.
 
 ## Pubblicarlo su Render
@@ -40,7 +41,9 @@ In locale: `python3 -m http.server 8000 -d public` e apri `http://localhost:8000
 ```
 public/js/
   main.js        oggetti, annulla/rifai, selezione, salvataggi, menu, ciclo di disegno
-  drone.js       telecamera drone: volo libero, joystick, sopra i tetti
+  controls.js    telecamera classica: gira intorno, zoom, spostamento
+  drone.js       telecamera drone (opzionale): volo libero, joystick, sopra i tetti
+  hud.js         minimappa con bussola
   input.js       tocchi e gesti (tocco, trascina, soglie)
   tools.js       strumenti: anteprima da confermare, tratti, pennelli, modifica
   editor.js      pannello di modifica (cursori, tetti, colori, ruota, duplica)

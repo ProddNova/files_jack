@@ -122,11 +122,24 @@ button {
 /* Phones: every tool visible at once, in two rows (nothing hidden off screen) */
 :root { --tb: 68px; }
 @media (max-width: 640px) {
-  :root { --tb: 112px; }
-  #toolbar { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; overflow: visible; }
-  #toolbar button { min-width: 0; padding: 4px 0 3px; }
-  #toolbar button span { font-size: 19px !important; line-height: 22px !important; }
-  #toolbar button small { font-size: 9px !important; }
+  /* Phones: a dock glued to the bottom edge, every tool visible in two compact rows */
+  :root { --tb: 88px; }
+  #toolbar {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1px 2px;
+    overflow: visible;
+    left: 0;
+    right: 0;
+    width: auto;
+    transform: none;
+    bottom: 0;
+    padding: 5px 6px calc(env(safe-area-inset-bottom, 0px) + 4px);
+    border-radius: 22px 22px 0 0;
+  }
+  #toolbar button { min-width: 0; padding: 3px 0 2px; border-radius: 12px; gap: 1px; }
+  #toolbar button span { font-size: 18px !important; line-height: 21px !important; }
+  #toolbar button small { font-size: 8.5px !important; letter-spacing: -0.1px; }
 }
 #toolbar::-webkit-scrollbar { display: none; }
 #toolbar button {
@@ -138,7 +151,7 @@ button {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  transition: background 0.2s ease, transform 0.12s ease;
+  transition: transform 0.12s ease;
 }
 
 #toolbar button span { font-size: 22px; line-height: 25px; }
@@ -417,7 +430,10 @@ body.panel-draft #panel { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--
   pointer-events: auto;
 }
 #dlift .round { touch-action: none; opacity: 0.9; }
-body.walking #drone-ui, body.panel-edit #drone-ui, body.panel-draft #drone-ui, body.no-joy #drone-ui { display: none; }
+/* Only with the drone camera chosen in the menu */
+#drone-ui { display: none; }
+body.cam-drone #drone-ui { display: block; }
+body.walking #drone-ui, body.panel-edit #drone-ui, body.panel-draft #drone-ui, body.no-joy #drone-ui { display: none !important; }
 
 /* ---------- First person ---------- */
 #walk-ui { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 7; }
@@ -530,3 +546,50 @@ body.walking #topbar, body.walking #toolbar, body.walking #subbar, body.walking 
   z-index: 9;
 }
 #hint.show { opacity: 1; }
+
+/* ---------- Minimap and HUD toggle ---------- */
+#minimap {
+  position: relative;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  padding: 3px;
+  background: var(--glass-strong);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  pointer-events: auto;
+  flex: 0 0 auto;
+}
+#minimap canvas { width: 72px; height: 72px; border-radius: 50%; display: block; }
+#minimap .needle { position: absolute; inset: 0; pointer-events: none; }
+#minimap .needle span {
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 6px;
+  padding: 0 3px;
+  line-height: 13px;
+}
+#minimap:active { transform: scale(0.96); }
+#topbar { align-items: flex-start; }
+#toast, #hint { top: calc(env(safe-area-inset-top, 0px) + 96px); }
+
+#hud-back {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 12px);
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  padding: 9px 14px;
+  font-weight: 700;
+  font-size: 14px;
+  display: none;
+  z-index: 6;
+}
+body.hud-off #hud-back { display: block; }
+body.hud-off #topbar, body.hud-off #toolbar, body.hud-off #subbar, body.hud-off #drone-ui, body.hud-off #panel, body.hud-off #vignette { display: none !important; }
+body.walking #hud-back { display: none; }
+#vignette { background: radial-gradient(ellipse at 50% 45%, transparent 62%, rgba(40, 25, 15, 0.2) 100%); }

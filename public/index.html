@@ -21,8 +21,12 @@
   <div id="vignette"></div>
 
   <div id="topbar">
-    <div class="pill title">Borgo di Mare</div>
+    <div id="minimap" role="button" aria-label="Mappa: tocca un punto per andarci" title="Tocca un punto per andarci">
+      <canvas></canvas>
+      <div class="needle"><span>N</span></div>
+    </div>
     <div class="pill actions">
+      <button id="btn-hud" class="icon" aria-label="Nascondi i comandi" title="Nascondi i comandi">👁</button>
       <button id="btn-help" class="icon" aria-label="Guida" title="Guida">❔</button>
       <button id="btn-walk" class="icon" aria-label="Passeggia in prima persona" title="Passeggia">🚶</button>
       <button id="btn-time" class="icon" aria-label="Ora del giorno" title="Ora del giorno">☀️</button>
@@ -32,6 +36,7 @@
   </div>
 
   <div id="toast" role="status" aria-live="polite"></div>
+  <button id="hud-back" class="pill" aria-label="Mostra i comandi">👁 Comandi</button>
 
   <div id="subbar">
     <button id="btn-undo" class="round" aria-label="Annulla" title="Annulla">↶</button>
@@ -75,13 +80,13 @@
       <h2 id="help-title">Benvenuto a Borgo di Mare</h2>
       <p class="lead">Costruisci il tuo borgo, il tuo castello o la tua campagna, su un'isola o in terraferma. Ecco tutto quello che puoi fare.</p>
 
-      <h3>🚁 Volare col drone</h3>
+      <h3>🌐 Muoversi</h3>
       <ul>
-        <li>Sei un <b>drone</b>: vai dove vuoi. <b>Joystick</b> a sinistra per volare avanti, indietro e di lato, <b>▲ ▼</b> a destra per salire e scendere. Più sei in alto, più vai veloce.</li>
-        <li><b>Trascina con un dito</b> (lontano dall'anteprima, o sul cielo): ti guardi intorno.</li>
-        <li><b>Due dita</b>: pizzica per volare verso quello che guardi, trascina per scorrere, ruota per girarti.</li>
-        <li>Il drone passa sopra tetti e alberi da solo. <b>🎯</b> torna alla vista d'insieme. Sul computer: WASD, Spazio/E sale, Q/C scende, Shift più veloce.</li>
-        <li>Se il joystick ti ingombra, nel menu puoi usare <b>solo i gesti</b>.</li>
+        <li><b>Un dito</b> lontano dall'anteprima, o sul mare e sul cielo: giri intorno all'isola.</li>
+        <li><b>Due dita</b>: trascina per spostarti, pizzica per lo zoom, ruota per girare. Più ti avvicini, più la vista si abbassa.</li>
+        <li><b>Mappa</b> in alto a sinistra: la freccia è dove guardi, la N indica il nord. <b>Tocca un punto della mappa</b> per andarci. <b>🎯</b> torna alla vista d'insieme.</li>
+        <li><b>👁</b> nasconde tutti i comandi per guardare o fare foto; "👁 Comandi" li riporta.</li>
+        <li>Nel menu ⚙️ puoi passare al <b>drone</b> (volo libero con joystick e ▲ ▼), utile su schermo orizzontale o col computer.</li>
       </ul>
 
       <h3>👆 Costruire</h3>
@@ -124,7 +129,7 @@
 
       <h3>🚶 A piedi</h3>
       <ul>
-        <li>Premi <b>🚶</b>: scendi a terra dove stai guardando, ad altezza d'uomo. Joystick per camminare (fino in fondo per correre), trascina per guardarti intorno. Uscendo, il drone riparte da lì.</li>
+        <li>Premi <b>🚶</b>: scendi a terra dove stai guardando, ad altezza d'uomo. Joystick per camminare (fino in fondo per correre), trascina per guardarti intorno.</li>
         <li>Tutto è in scala: un piano di casa è circa 3 metri, una persona 1,75.</li>
       </ul>
 

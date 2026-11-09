@@ -30,7 +30,7 @@ export const TOOL_DEFS = [
     ],
   },
   {
-    id: 'castello', icon: '🏰', label: 'Castello', mode: 'mixed', hint: 'Fortezza: trascina da un angolo all\'altro · Mura: trascina, le torri nascono agli angoli · gli altri pezzi: tocca e conferma',
+    id: 'castello', icon: '🏰', label: 'Castello', mode: 'mixed', hint: 'Fortezza e mura: trascina · gli altri pezzi: tocca e conferma',
     variants: [
       v('fortezza', '🏰 Fortezza intera', 'fort', 'castello'), v('mura', '🧱 Mura', 'wall', 'castello'), v('bastione', '🛡️ Bastione', 'wall', 'bastione'), v('torrione', '🏰 Torrione', 'tower', 'torrione'),
       v('torretta', '🗼 Torretta', 'tower', 'torretta'), v('mastio', '🏯 Mastio', 'tower', 'mastio'), v('porta', '🚪 Porta', 'house', 'porta'),
@@ -38,7 +38,7 @@ export const TOOL_DEFS = [
     ],
   },
   {
-    id: 'recinti', icon: '🧱', label: 'Muri', mode: 'stroke', hint: 'Trascina per costruire · il tasto a sinistra cambia il modo: 📏 dritto, ⬜ rettangolo, ⭕ cerchio, ✍️ libero',
+    id: 'recinti', icon: '🧱', label: 'Muri', mode: 'stroke', hint: 'Trascina per costruire · il tasto arancione cambia modo',
     variants: [
       v('muretto', '🪨 Muretto', 'wall', 'muretto'), v('mura', '🧱 Mura', 'wall', 'mura'), v('mattoni', '🧱 Mattoni', 'wall', 'mattoni'),
       v('intonaco', '🏳️ Intonacato', 'wall', 'intonaco'), v('ringhiera', '⚜️ Ringhiera', 'wall', 'ringhiera'), v('palizzata', '🪵 Palizzata', 'wall', 'palizzata'),
@@ -47,7 +47,7 @@ export const TOOL_DEFS = [
     ],
   },
   {
-    id: 'path', icon: '🥾', label: 'Strade', mode: 'stroke', hint: 'Trascina per fare una strada · il tasto a sinistra: ✍️ libera, 📏 dritta, ⬜ piazza',
+    id: 'path', icon: '🥾', label: 'Strade', mode: 'stroke', hint: 'Trascina per fare una strada · il tasto arancione: libera, dritta o piazza',
     variants: [
       v('ciottoli', '🪨 Ciottoli', 'path', 0), v('mattoni', '🧱 Mattoni', 'path', 1), v('lastricato', '⬜ Lastricato', 'path', 2),
       v('sterrato', '🟫 Sterrato', 'path', 3), v('ghiaia', '⚪ Ghiaia', 'path', 4),

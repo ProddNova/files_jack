@@ -12,9 +12,11 @@ import { createTextureArray } from './textures.js';
 import { TEX } from './shaders.js';
 import { createPost } from './post.js';
 import { createVista } from './vista.js';
+import { createMinimap } from './hud.js';
 import { createDecor } from './decor.js';
 import { createLife } from './life.js';
 import { DroneRig, DRONE_FOV } from './drone.js';
+import { CameraRig } from './controls.js';
 import { createReflection } from './reflect.js';
 import { setupInput } from './input.js';
 import { createTools, TOOL_DEFS, translateData, DRAW_MODES } from './tools.js';
@@ -58,10 +60,42 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.NeutralToneMapping;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(DRONE_FOV, window.innerWidth / window.innerHeight, 0.1, 900);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.3, 900);
 // Layer 1: small things (grass, cursor, selection) the water reflection skips
 camera.layers.enable(1);
-const rig = new DroneRig(camera, { topAt: (x, z) => objectTop(x, z) });
+// Two cameras: the classic one turns around the island (default, best with
+// one hand in portrait), the drone flies freely. Only one drives at a time.
+const orbit = new CameraRig(camera);
+const drone = new DroneRig(camera, { topAt: (x, z) => objectTop(x, z) });
+let rig = prefs.cam === 'drone' ? drone : orbit;
+function applyLens() {
+  camera.fov = rig === drone ? DRONE_FOV : 45;
+  camera.near = rig === drone ? 0.1 : 0.3;
+  camera.updateProjectionMatrix();
+  document.body.classList.toggle('cam-drone', rig === drone);
+}
+function setCamMode(mode) {
+  const next = mode === 'drone' ? drone : orbit;
+  prefs.cam = mode;
+  savePrefs();
+  if (next === rig) return;
+  if (next === drone) {
+    // Start flying from exactly where the classic camera was
+    const e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+    drone.setPose(camera.position, e.y, e.x);
+  } else {
+    // Turn around what the drone was looking at
+    const t = drone.target;
+    const d = Math.hypot(t.x, t.z);
+    const k = d > 30 ? 30 / d : 1;
+    orbit.stop();
+    Object.assign(orbit.goal, { tx: t.x * k, tz: t.z * k, theta: drone.theta, radius: Math.min(Math.max(camera.position.distanceTo(t), 7), 80), tilt: 0 });
+    Object.assign(orbit.cur, orbit.goal);
+  }
+  rig = next;
+  applyLens();
+}
+applyLens();
 TEX.uTex.value = createTextureArray(renderer, lowPower ? 256 : 512);
 scene.add(createTerrain(0));
 TEX.uHeight.value = heightTexture;
@@ -290,7 +324,32 @@ function refreshAll() {
   decor.refresh(objects);
   life.refresh(objects);
   updateSelection();
+  minimapDirty = true;
 }
+
+// ---------- Minimap ----------
+
+let minimapDirty = true;
+const minimap = createMinimap($('#minimap'), {
+  // Tap on the map: the view glides there
+  onPick(x, z) {
+    if (walk.active) return;
+    const lim = SIZE / 2 - 4;
+    x = Math.max(-lim, Math.min(lim, x));
+    z = Math.max(-lim, Math.min(lim, z));
+    if (rig === orbit) {
+      orbit.stop();
+      const d = Math.hypot(x, z);
+      const k = d > 30 ? 30 / d : 1;
+      orbit.goal.tx = x * k;
+      orbit.goal.tz = z * k;
+    } else {
+      drone.goal.x += x - drone.target.x;
+      drone.goal.z += z - drone.target.z;
+    }
+    audio.tick();
+  },
+});
 
 function inBox(o, box, m = 1) {
   const b = o.bounds;
@@ -691,7 +750,8 @@ let toolName = TOOL_DEFS.some((t) => t.id === prefs.tool) ? prefs.tool : 'case';
 const editor = createEditor({ liveEdit, commitEdit, duplicate, deleteObj, deselect: () => deselect(), yaw: () => rig.theta, grid: () => prefs.grid ?? 0.5 }, $('#panel'));
 
 const G = {
-  objects, rig, audio, toast, env, prefs, treeMix,
+  objects, audio, toast, env, prefs, treeMix,
+  get rig() { return rig; },
   add, remove, attach, newAction, commit, refreshAll, afterTerrain, liveReground,
   setGhost, variant, objectAt, select, deselect, liveEdit, commitEdit,
   grid: () => (prefs.grid ?? 0.5),
@@ -720,14 +780,18 @@ const walk = createWalk({
   onExit: (pos, yaw, pitch) => {
     input.reset();
     // Take off from where you were standing
-    rig.setPose(pos, yaw, pitch);
-    rig.goal.y += 3;
-    toast('🚁 Di nuovo in volo', 1400);
+    if (rig === drone) {
+      // Take off from where you were standing
+      drone.setPose(pos, yaw, pitch);
+      drone.goal.y += 3;
+    }
+    applyLens();
+    toast(rig === drone ? '🚁 Di nuovo in volo' : 'Bentornato in vista dall\'alto', 1400);
   },
 });
 
 const input = setupInput(canvas, {
-  rig,
+  get rig() { return rig; },
   pick,
   tool: currentHandler,
   onTouch: () => audio.unlock(),
@@ -809,7 +873,7 @@ for (const t of TOOL_DEFS) {
     knob.style.transform = `translate(${dx}px, ${dy}px)`;
     // A small dead zone in the middle, then speed grows smoothly
     const k = (v) => Math.sign(v) * Math.max(0, Math.abs(v) / max - 0.12) / 0.88;
-    rig.setStick(k(dx), k(dy));
+    drone.setStick(k(dx), k(dy));
   };
   joy.addEventListener('pointerdown', (e) => {
     e.preventDefault();
@@ -826,14 +890,14 @@ for (const t of TOOL_DEFS) {
     if (e.pointerId !== id) return;
     id = null;
     knob.style.transform = '';
-    rig.setStick(0, 0);
+    drone.setStick(0, 0);
   };
   joy.addEventListener('pointerup', end);
   joy.addEventListener('pointercancel', end);
   for (const [sel, v] of [['#d-up', 1], ['#d-down', -1]]) {
     const b = $(sel);
-    b.addEventListener('pointerdown', (e) => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch { /* ignore */ } rig.setLift(v); });
-    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, () => rig.setLift(0));
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch { /* ignore */ } drone.setLift(v); });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, () => drone.setLift(0));
   }
   document.body.classList.toggle('no-joy', !!prefs.noJoy);
 }
@@ -841,6 +905,9 @@ for (const t of TOOL_DEFS) {
 // ---------- Buttons ----------
 
 $('#btn-undo').addEventListener('click', undo);
+// Hide every control for a clean view (photos, just looking around)
+$('#btn-hud').addEventListener('click', () => { document.body.classList.add('hud-off'); deselect(); });
+$('#hud-back').addEventListener('click', () => document.body.classList.remove('hud-off'));
 $('#btn-redo').addEventListener('click', redo);
 
 // Drawing mode for walls and streets: straight, rectangle, circle, freehand
@@ -1024,7 +1091,11 @@ function renderMenu() {
     ['0,5', (prefs.grid ?? 0.5) === 0.5, () => { prefs.grid = 0.5; savePrefs(); }],
     ['1', prefs.grid === 1, () => { prefs.grid = 1; savePrefs(); }],
   ]);
-  row(ctl, 'Joystick del drone', [
+  row(ctl, 'Telecamera', [
+    ['🌐 Classica (gira intorno)', rig === orbit, () => setCamMode('orbita')],
+    ['🚁 Drone (volo libero)', rig === drone, () => setCamMode('drone')],
+  ]);
+  if (rig === drone) row(ctl, 'Joystick del drone', [
     ['🕹️ Sì', !prefs.noJoy, () => { prefs.noJoy = false; savePrefs(); document.body.classList.remove('no-joy'); }],
     ['Solo gesti', !!prefs.noJoy, () => { prefs.noJoy = true; savePrefs(); document.body.classList.add('no-joy'); }],
   ]);
@@ -1122,6 +1193,7 @@ function adaptQuality(dtMs) {
 }
 
 const focusTmp = new THREE.Vector3();
+let frameCount = 0;
 const clock = new THREE.Clock();
 let elapsed = 0;
 let first = true;
@@ -1137,7 +1209,7 @@ function frame() {
   // Shadows are sharpest around this point: what you look at, but not too far ahead
   let focus = rig.target;
   if (walk.active) focus = walk.position;
-  else {
+  else if (rig === drone) {
     const dx = rig.target.x - camera.position.x, dz = rig.target.z - camera.position.z;
     const d = Math.hypot(dx, dz);
     if (d > 26) focus = focusTmp.set(camera.position.x + dx / d * 26, 0, camera.position.z + dz / d * 26);
@@ -1173,6 +1245,9 @@ function frame() {
   }
   selGroup.visible = !walk.active;
   post.setBloom(world.night);
+  // The minimap redraws its ground only after changes, and its view every few frames
+  if (minimapDirty) { minimap.refresh(objects); minimapDirty = false; }
+  if ((frameCount++ & 3) === 0 && !document.body.classList.contains('hud-off')) minimap.update(camera, walk.active ? walk.position : rig.target);
   draw();
   if (!first) adaptQuality(rawDt * 1000);
   if (first) {
@@ -1185,4 +1260,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Handy for debugging from the console
-window.borgo = { objects, rig, world, post, camera, reflection, redo, setTool, undo, prefs, renderer, walk, select, editor, add, freshIsland, refreshAll, applySeason, get tool() { return currentHandler(); } };
+window.borgo = { get rig() { return rig; }, orbit, drone, setCamMode, objects, world, post, camera, reflection, redo, setTool, undo, prefs, renderer, walk, select, editor, add, freshIsland, refreshAll, applySeason, get tool() { return currentHandler(); } };
