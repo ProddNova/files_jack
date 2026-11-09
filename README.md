@@ -7,26 +7,24 @@ La guida completa compare al primo avvio (e con il tasto ❔).
 
 ## Cosa si può fare
 
-- **Case (12)**: casa ligure, villetta, casa di pietra, a graticcio, casa dei pescatori, casa torre, locanda, fienile, mulino, serra di vetro, torre del mago, casa sull'albero.
-- **Edifici (11)**: palazzo, palazzo con portico, comune con orologio, villa, mercato coperto, chiesa a fasce, cappella, duomo con cupola, campanile, torre, faro.
-- **Castello**: mura che mettono da sole le torri agli angoli, bastione, torrione, torretta a guglia, mastio, porta con saracinesca, torre quadrata.
-- **Muri (9 stili) e ponti**: muretto, mura, mattoni, intonacato, ringhiera, palizzata, staccionata, steccato, siepe; ponti di pietra o legno. Dopo averli fatti si regolano altezza, spessore, merli (quadrati, a coda di rondine, nessuno), torri sì/no e distanza tra le torri, tetti delle torri, pietra o colore.
-- **Strade (5 tipi)**: ciottoli, mattoni a spina di pesce, lastricato, sterrato, ghiaia. Ripassando una strada con un altro tipo la cambi.
-- **Natura e terreno**: ulivi, pini, cipressi, palme, abeti, querce, betulle, salici, cactus, cespugli, massi, fiori; "Misti" sceglie gli alberi adatti allo scenario. Alza, abbassa, spiana (scavando nasce un laghetto).
-- **Arredo**: lampioni e panchine (si girano da soli verso la strada più vicina), fontana, pozzo, vasi, bancarella, botti, carretto, falò, gazebo, orto, statua, cristallo, gatti, pecore, barche.
-- **Modifica tutto dopo**: tocca un elemento e cambi rotazione (cursore in gradi o ⟲ ⟳ a scatti di 45°), larghezza, profondità, piani o altezza, tetto, colori, pietra. Duplica, elimina, sposta trascinando.
-- **7 scenari**: Riviera, Arcipelago, Laguna con canali, Monti innevati, Bosco d'autunno, Deserto con oasi, Isola del vulcano (con lava che brilla di notte).
-- **4 stagioni**: in autunno querce e betulle diventano arancioni (i sempreverdi restano verdi), in inverno la neve si posa su tetti, alberi e prati.
-- **Passeggiata in prima persona** con joystick, collisioni e ponti calpestabili.
-- **Vita e atmosfera**: abitanti che passeggiano, panni stesi, ciclo giorno e notte, pioggia, nuvole, lucciole, faro acceso.
-- **Isole**: 3 salvataggi, nuova isola casuale per ogni scenario, esporta e importa in un file.
+- **Drone**: voli liberamente sopra il mondo (joystick, ▲ ▼ per salire e scendere, trascina per guardarti intorno, pizzica per avvicinarti). Passa sopra tetti e alberi da solo. Con 🚶 scendi a terra ad altezza d'uomo: primo passo verso un gioco in prima persona.
+- **Mondi**: terraferma (campagna col fiume, colline, valle alpina, lago tra i colli) o isole (riviera, arcipelago, laguna, monti, bosco d'autunno, deserto, vulcano). Intorno alla mappa c'è sempre un paesaggio fino all'orizzonte: colline, boschi, montagne innevate, isole lontane.
+- **Case (12)** ed **Edifici (11)**: dalla casa ligure al duomo, tutti modificabili dopo (misure, piani, tetto, colori).
+- **Castelli in un gesto**: "Fortezza intera" crea mura dritte, torri sugli angoli, porta con saracinesca e mastio trascinando un rettangolo.
+- **Muri e strade dritti**: modi 📏 dritto (angoli di 15°, misure sulla griglia), ⬜ rettangolo (per le strade: piazza), ⭕ cerchio, ✍️ libero. I muri che si toccano si uniscono senza pilastri o torri doppie; gli angoli restano pieni.
+- **Campi**: grano, vigna, lavanda, girasoli, mais, orto, tulipani, terra arata.
+- **Griglia** visibile mentre costruisci, con passo regolabile; nel pannello ◀ ▲ ▼ ▶ per spostare di un passo e ↺ ↻ di 15°. Annulla e **rifai**.
+- **Abitanti** con gambe e braccia che si muovono, vestiti, capelli, cappelli, in scala con le case.
+- **Scala reale**: un piano di casa ≈ 3 m, una persona ≈ 1,75 m. Panchine, staccionate, gatti, erba sono alla misura giusta.
+- **Pacchetto shader (Ultra)**: riflessi veri sul mare, raggi di sole, occlusione ambientale, nebbia che si scalda verso il sole, nuvole con ombre sul terreno, foglie ed erba nel vento, colori filmici.
+- **Stagioni, ora del giorno, meteo**, 3 salvataggi, esporta e importa.
 
 ## Comandi su iPhone
 
-- **Tocco** = anteprima, poi **✓** per costruire. Un trascinamento non costruisce mai: gira la vista. (Nel menu si può attivare il piazzamento rapido.)
-- **1 dito** sul mare o sul cielo, o lontano dall'anteprima: ruota la vista.
-- **2 dita**: sposta, pizzica per lo zoom, ruota. Ogni gesto parte solo oltre una soglia, così non si mescolano.
-- Muri, strade, alberi e terreno si disegnano trascinando: l'azione parte dopo un attimo, così un secondo dito la trasforma in gesto della camera.
+- **Tocco** = anteprima, poi **✓** per costruire. Un trascinamento non costruisce mai.
+- **1 dito** fuori dall'anteprima, o sul cielo: guardi intorno. **2 dita**: pizzica per volare avanti, trascina per scorrere, ruota per girarti.
+- **Joystick** a sinistra e **▲ ▼** a destra per volare (si possono nascondere dal menu).
+- Muri, strade, campi, alberi e terreno si disegnano trascinando; il tasto arancione cambia il modo di disegno.
 
 ## Pubblicarlo su Render
 
@@ -41,20 +39,23 @@ In locale: `python3 -m http.server 8000 -d public` e apri `http://localhost:8000
 
 ```
 public/js/
-  main.js        oggetti, annulla, selezione, salvataggi, menu, ciclo di disegno
-  input.js       tocchi e gesti (tocco, trascina, soglie, mare = rotazione)
+  main.js        oggetti, annulla/rifai, selezione, salvataggi, menu, ciclo di disegno
+  drone.js       telecamera drone: volo libero, joystick, sopra i tetti
+  input.js       tocchi e gesti (tocco, trascina, soglie)
   tools.js       strumenti: anteprima da confermare, tratti, pennelli, modifica
   editor.js      pannello di modifica (cursori, tetti, colori, ruota, duplica)
   walk.js        prima persona: joystick, sguardo, collisioni
   life.js        abitanti (due mesh "instanced" per tutti)
   textures.js    texture procedurali disegnate dalla GPU
   shaders.js     aggiunte agli shader: texture, rilievo, ombra di contatto, terreno a strati
-  post.js        bagliore notturno (bloom) ed effetto miniatura
+  post.js        pacchetto shader: occlusione, raggi di sole, nebbia, bloom, colori filmici
+  reflect.js     riflessi del mare con una camera specchiata
+  vista.js       paesaggio oltre la mappa fino all'orizzonte
   world.js       cielo, sole, riflessi del cielo, mare, meteo, barche, gabbiani
   terrain.js     scenari, isola generata da un seme, altezze modificabili, strade
   placement.js   impronte, collisioni, allineamenti
   decor.js       erba, fiori, sassi, panni stesi, lucciole
-  build/*.js     case (houses.js + houses2.js), torri, muri, ponti, natura, arredi
+  build/*.js     case (houses.js + houses2.js), torri, muri, ponti, campi, natura, arredi
 ```
 
 Alcune scelte, per capire il ragionamento:
@@ -67,6 +68,9 @@ Alcune scelte, per capire il ragionamento:
 - **Anteprima da confermare.** Su telefono il dito copre quello che tocchi ed è facile sbagliare: separare "scegli dove" da "costruisci" elimina gli errori senza rallentare chi sa cosa vuole (c'è comunque il piazzamento rapido).
 - **Lampioni che guardano la strada.** Quando ne piazzi uno, il gioco cerca il punto di strada più vicino e calcola l'angolo con `atan2`: è lo stesso conto che faresti a mano con la trigonometria, solo automatico.
 - **Stagioni senza rifare i modelli.** Gli alberi non vengono ricostruiti: lo shader ricolora solo le foglie (ogni albero prende una sfumatura diversa dalla sua posizione) e imbianca le facce rivolte verso l'alto. I sempreverdi hanno un "segnaposto" diverso nello strato texture, così l'autunno li salta.
+- **Profondità = superpoteri.** Dopo aver disegnato la scena, il buffer di profondità dice a ogni pixel dove si trova in 3D. Da lì escono occlusione (gli angoli si scuriscono), nebbia per distanza e altezza, e i raggi di sole (si cammina dal pixel verso il sole e si conta quanto cielo luminoso si incontra).
+- **Riflessi con una camera specchiata.** Il mare è un piano: basta disegnare la scena una seconda volta, a metà risoluzione, da una camera "sotto l'acqua". È esatto e costa meno dei riflessi in screen-space.
+- **Muri dritti: matematica semplice.** L'angolo del dito si arrotonda al multiplo di 15° più vicino e la lunghezza al passo di griglia. Agli angoli il lato del muro si allunga di 1/cos(metà angolo) (il "miter"), così lo spessore resta pieno.
 - **Qualità adattiva.** Se il telefono fatica, la grafica scende da sola di livello. Si può cambiare dal menu.
 
 Licenze: Three.js r169 e i suoi moduli di post-processing sono MIT (vedi `public/vendor/THREE_LICENSE.txt`).

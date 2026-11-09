@@ -119,6 +119,15 @@ button {
 }
 
 #toolbar { overflow-x: auto; scrollbar-width: none; }
+/* Phones: every tool visible at once, in two rows (nothing hidden off screen) */
+:root { --tb: 68px; }
+@media (max-width: 640px) {
+  :root { --tb: 112px; }
+  #toolbar { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; overflow: visible; }
+  #toolbar button { min-width: 0; padding: 4px 0 3px; }
+  #toolbar button span { font-size: 19px !important; line-height: 22px !important; }
+  #toolbar button small { font-size: 9px !important; }
+}
 #toolbar::-webkit-scrollbar { display: none; }
 #toolbar button {
   flex: 1 0 auto;
@@ -147,7 +156,7 @@ button {
   position: fixed;
   left: calc(env(safe-area-inset-left, 0px) + 8px);
   right: calc(env(safe-area-inset-right, 0px) + 8px);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 78px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tb) + 10px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -304,7 +313,7 @@ button {
   position: fixed;
   left: 50%;
   transform: translate(-50%, 20px);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tb) + 8px);
   width: min(calc(100% - 16px), 560px);
   max-height: 44vh;
   display: flex;
@@ -321,7 +330,7 @@ button {
 }
 #panel.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
 body.panel-edit #subbar { opacity: 0; pointer-events: none; }
-body.panel-draft #panel { bottom: calc(env(safe-area-inset-bottom, 0px) + 132px); max-height: 38vh; }
+body.panel-draft #panel { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tb) + 64px); max-height: 36vh; }
 #subbar { transition: opacity 0.2s ease; }
 
 .phead {
@@ -376,7 +385,7 @@ body.panel-draft #panel { bottom: calc(env(safe-area-inset-bottom, 0px) + 132px)
 #djoy {
   position: absolute;
   left: calc(env(safe-area-inset-left, 0px) + 14px);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--dock, 140px));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + calc(var(--tb) + 70px));
   width: 104px;
   height: 104px;
   border-radius: 50%;
@@ -401,7 +410,7 @@ body.panel-draft #panel { bottom: calc(env(safe-area-inset-bottom, 0px) + 132px)
 #dlift {
   position: absolute;
   right: calc(env(safe-area-inset-right, 0px) + 14px);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--dock, 140px));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + calc(var(--tb) + 70px));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -500,3 +509,24 @@ body.walking #topbar, body.walking #toolbar, body.walking #subbar, body.walking 
 .mbtn.active { background: var(--ink); color: #fff8ef; }
 #help .lead { margin: 0 0 6px; font-size: 14px; color: #4b3e37; }
 #help .card { width: min(100%, 460px); }
+
+/* Subbar extras and the measure hint */
+.round.hidden { display: none; }
+#btn-mode { background: var(--accent); color: var(--accent-ink); }
+#hint {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top, 0px) + 64px);
+  transform: translateX(-50%);
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(40, 32, 28, 0.72);
+  color: #fff8ef;
+  font-weight: 700;
+  font-size: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 9;
+}
+#hint.show { opacity: 1; }

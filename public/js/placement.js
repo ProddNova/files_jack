@@ -1,6 +1,6 @@
 // Footprints, collisions and snapping: keeps buildings from overlapping and
 // lines them up with neighbours, paths and walls.
-import { houseDims, houseRect, towerRadius, propRadius, wallHalf } from './builders.js';
+import { houseDims, houseRect, towerRadius, propRadius, wallHalf, fieldDims } from './builders.js';
 import { getHeight, pathAt } from './terrain.js';
 import { angleDiff, distToSegment2, round2 } from './util.js';
 
@@ -13,6 +13,7 @@ export function footprint(kind, data) {
   if (kind === 'prop') return { type: 'circle', x: data.x, z: data.z, r: propRadius(data) };
   if (kind === 'wall') return { type: 'line', pts: data.pts, half: wallHalf(data.style, data.t) + (data.style === 'bastione' ? 0.5 : 0) };
   if (kind === 'bridge') return { type: 'line', pts: [data.a, data.b], half: (data.w ?? 1.6) / 2 };
+  if (kind === 'field') { const f = fieldDims(data); return { type: 'rect', x: data.x, z: data.z, hw: f.w / 2, hd: f.d / 2, ang: data.ang || 0 }; }
   return { type: 'circle', x: data.x, z: data.z, r: (kind === 'tree' ? 0.45 : 0.3) * (data.s ?? 1) };
 }
 
@@ -154,7 +155,7 @@ export function nearestPath(x, z, R) {
   return best;
 }
 
-function nearestWall(x, z, objects, R) {
+export function nearestWall(x, z, objects, R) {
   let best = null;
   for (const o of objects) {
     if (o.kind !== 'wall') continue;

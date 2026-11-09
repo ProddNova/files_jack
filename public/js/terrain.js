@@ -49,6 +49,11 @@ export const SCENARIOS = {
   autunno: { name: 'Bosco d\'autunno', icon: '🍂', season: 'autunno', pal: P({ grass1: '#a3a556', grass2: '#8c8a45', dry: '#c9a45a', maquis: '#7a6a3a' }) },
   deserto: { name: 'Oasi nel deserto', icon: '🏜️', season: 'estate', desert: true, pal: P({ sand: '#e3c38d', wetSand: '#c9a46f', grass1: '#7fa05a', rock: '#c08a5a', rockDark: '#a5714a' }) },
   vulcano: { name: 'Isola vulcanica', icon: '🌋', season: 'estate', volcano: true, pal: P({ sand: '#5b5450', wetSand: '#47423f', grass1: '#6f8f45', grass2: '#56763a', rock: '#4a4542', rockDark: '#3a3532', deep: '#3a3a38' }) },
+  // Mainland worlds: land all around, to the horizon
+  campagna: { name: 'Campagna col fiume', icon: '🌾', season: 'estate', mainland: true, sandTop: 0.12, pal: P({ grass1: '#9cbb5c', grass2: '#7ea24a', dry: '#c2b765', sand: '#cdbb8a', wetSand: '#9f8f6a', deep: '#5f6b55' }) },
+  colline: { name: 'Colline', icon: '🌄', season: 'estate', mainland: true, sandTop: 0.12, pal: P({ grass1: '#a5b85c', grass2: '#86a048', dry: '#cbb56a', maquis: '#5d7d3c', sand: '#cdbb8a' }) },
+  valle: { name: 'Valle alpina', icon: '⛰️', season: 'estate', mainland: true, sandTop: 0.12, pal: P({ grass1: '#7fae4f', grass2: '#5f913f', maquis: '#4a6e36', rock: '#8f8d88', rockDark: '#6e6c69', sand: '#b8b09a', wetSand: '#8f887a' }) },
+  lago: { name: 'Lago tra i colli', icon: '🏞️', season: 'primavera', mainland: true, sandTop: 0.32, pal: P({ grass1: '#93b862', grass2: '#73994c', sand: '#d6c9a0', wetSand: '#a99c78', deep: '#5a6a5e' }) },
 };
 
 let scenario = 'riviera';
@@ -80,6 +85,12 @@ function setSeedOffsets(seed) {
       return { x: Math.cos(a) * (10 + r(52 + i) * 6), z: Math.sin(a) * (10 + r(52 + i) * 6) };
     }),
     vx: (r(60) - 0.5) * 6, vz: (r(61) - 0.5) * 6,
+    coastAng: r(70) * Math.PI * 2,
+    isles: [0, 1, 2].map((i) => {
+      const a = r(80 + i) * Math.PI * 2;
+      const d = 140 + r(84 + i) * 160;
+      return { x: Math.cos(a) * d, z: Math.sin(a) * d, r: 14 + r(88 + i) * 22, h: 8 + r(92 + i) * 22 };
+    }),
   };
 }
 
@@ -92,7 +103,85 @@ function coastLand(x, z, R = ISLAND_R) {
 
 const hills = (x, z, amp = 2.6) => (fbm(x * 0.055 + 11 + off.a, z * 0.055 - 3 + off.b, 4) - 0.45) * amp;
 
+// ---------- Far landscape (the view to the horizon) ----------
+
+const ridged = (x, z, oct = 5) => 1 - Math.abs(2 * fbm(x + off.a * 0.37, z + off.b * 0.37, oct) - 1);
+const angDiff = (a, b) => { let d = Math.abs(a - b) % (Math.PI * 2); return d > Math.PI ? Math.PI * 2 - d : d; };
+// Slow, wide rolling ground shared by the editable map and its surroundings
+const plain = (x, z, amp) => 0.75 + (fbm(x * 0.012 + off.a, z * 0.012 + off.b, 3) - 0.45) * amp;
+// A river winding across the land (distance to its center line)
+const riverDist = (x, z) => Math.abs(z - (9 * Math.sin(x * 0.045 + off.a) + 4 * Math.sin(x * 0.11 + off.b) + off.c1 * 0.6));
+const carveRiver = (h, x, z, w = 2.0) => lerp(h, -0.75, smoothstep(w * 1.6, w * 0.7, riverDist(x, z)));
+// Big mountains far away, higher the farther they are
+const mountains = (x, z, d, from, to, height) => {
+  const k = smoothstep(from, to, d);
+  if (k <= 0) return 0;
+  return (ridged(x * 0.0065, z * 0.0065) ** 1.6 * 0.85 + fbm(x * 0.02, z * 0.02, 3) * 0.25) * height * k;
+};
+
+// Islands: open sea all around, a few far islands and a mountain coast on one side
+function seaVista(x, z) {
+  const d = Math.hypot(x, z);
+  let h = lerp(MIN_H, -22, smoothstep(36, 110, d));
+  const arc = smoothstep(1.25, 0.55, angDiff(Math.atan2(z, x), off.coastAng));
+  if (arc > 0) {
+    const shore = 330 + (fbm(Math.atan2(z, x) * 2.5 + off.a, 3.3, 3) - 0.5) * 140;
+    const land = smoothstep(shore - 25, shore + 25, d) * arc;
+    if (land > 0) h = lerp(h, 3 + mountains(x, z, d, shore - 40, shore + 260, 95), land);
+  }
+  for (const s of off.isles) {
+    const q = Math.hypot(x - s.x, z - s.z) / s.r;
+    if (q < 1.6) h = Math.max(h, lerp(-6, s.h * (1 - q * 0.55) + (fbm(x * 0.05, z * 0.05, 3) - 0.5) * 6, smoothstep(1.6, 0.9, q)));
+  }
+  return h;
+}
+
+const VISTAS = {
+  campagna(x, z) {
+    const d = Math.hypot(x, z);
+    return carveRiver(plain(x, z, 3.0) + (fbm(x * 0.03, z * 0.03, 3) - 0.5) * 8 * smoothstep(40, 160, d) + mountains(x, z, d, 260, 700, 140), x, z, 2.4);
+  },
+  colline(x, z) {
+    const d = Math.hypot(x, z);
+    const roll = (fbm(x * 0.022 + off.a, z * 0.022 + off.b, 4) - 0.4) * 22 * smoothstep(30, 110, d);
+    return plain(x, z, 4) + Math.max(roll, -2) + mountains(x, z, d, 300, 750, 110);
+  },
+  valle(x, z) {
+    // A valley along off.ang: the sides climb into high, snowy peaks
+    const c = Math.cos(off.ang), sn = Math.sin(off.ang);
+    const across = Math.abs(-x * sn + z * c);
+    const along = x * c + z * sn;
+    const side = smoothstep(18, 140, across);
+    const peaks = (ridged(x * 0.009, z * 0.009) ** 1.4 * 0.8 + 0.25) * 95 * side;
+    const stream = Math.abs(-x * sn + z * c - 3 * Math.sin(along * 0.08 + off.b));
+    return lerp(plain(x, z, 1.5) + side * 6 + peaks, -0.6, smoothstep(2.6, 1.1, stream));
+  },
+  lago(x, z) {
+    const d = Math.hypot(x, z);
+    const lx = Math.cos(off.coastAng) * 70, lz = Math.sin(off.coastAng) * 70;
+    const dl = Math.hypot(x - lx, z - lz) / (48 + (noise2(x * 0.03, z * 0.03) - 0.5) * 30);
+    const land = plain(x, z, 3) + (fbm(x * 0.025, z * 0.025, 3) - 0.4) * 14 * smoothstep(36, 120, d) + mountains(x, z, d, 220, 650, 120);
+    return lerp(land, -2.2, smoothstep(1.0, 0.75, dl));
+  },
+};
+
+export function isMainland() { return !!SCENARIOS[scenario].mainland; }
+export function vistaHeight(x, z) { return (VISTAS[scenario] || seaVista)(x, z); }
+
+// The editable map melts into the far landscape near its edge
+function mainlandShape(local) {
+  return (x, z) => {
+    const e = smoothstep(26, 35.6, Math.max(Math.abs(x), Math.abs(z)));
+    const far = VISTAS[scenario](x, z);
+    return e >= 1 ? far : lerp(local(x, z, far), far, e);
+  };
+}
+
 const SHAPES = {
+  campagna: mainlandShape((x, z) => carveRiver(plain(x, z, 3.0) + Math.max(hills(x, z, 1.2), -0.3), x, z, 2.4)),
+  colline: mainlandShape((x, z) => plain(x, z, 4) + Math.max(hills(x, z, 5.5), -0.6) + off.big * 0.9 * Math.exp(-((x - off.hx) ** 2 + (z - off.hz) ** 2) / 90)),
+  valle: mainlandShape((x, z, far) => far + Math.max(hills(x, z, 1.0), -0.2)),
+  lago: mainlandShape((x, z, far) => far + Math.max(hills(x, z, 1.6), -0.3) * smoothstep(-1, 1.5, far)),
   riviera(x, z) {
     const { land } = coastLand(x, z);
     const bigHill = off.big * Math.exp(-((x - off.hx) ** 2 + (z - off.hz) ** 2) / 70);
@@ -169,7 +258,9 @@ function idx(ix, iz) {
   return clamp(iz, 0, SEG) * N + clamp(ix, 0, SEG);
 }
 
-function computeBaseColor(i, x, z, h, slope) {
+// Ground color and texture mix at a point: used by the map and by the far
+// landscape next to it, so the two match at the edge.
+export function groundColor(x, z, h, slope, out) {
   const S = SCENARIOS[scenario];
   const C = S.pal;
   const n = noise2(x * 0.35, z * 0.35);
@@ -206,12 +297,22 @@ function computeBaseColor(i, x, z, h, slope) {
   }
   const rockMix = smoothstep(0.55, 1.0, slope) * (S.snowLine && h > S.snowLine + 1 ? 0.5 : 1);
   if (rockMix > 0) tmp.lerp(noise2(x * 0.9, z * 0.9) > 0.5 ? C.rock : C.rockDark, rockMix);
-  baseSplat[i * 3] = (1 - sandW) * (1 - rockMix);
-  baseSplat[i * 3 + 1] = sandW * (1 - rockMix);
-  baseSplat[i * 3 + 2] = rockMix;
-  baseColors[i * 3] = tmp.r;
-  baseColors[i * 3 + 1] = tmp.g;
-  baseColors[i * 3 + 2] = tmp.b;
+  out.color.copy(tmp);
+  out.grass = (1 - sandW) * (1 - rockMix);
+  out.sand = sandW * (1 - rockMix);
+  out.rock = rockMix;
+  return out;
+}
+
+const gc = { color: new THREE.Color(), grass: 0, sand: 0, rock: 0 };
+function computeBaseColor(i, x, z, h, slope) {
+  groundColor(x, z, h, slope, gc);
+  baseSplat[i * 3] = gc.grass;
+  baseSplat[i * 3 + 1] = gc.sand;
+  baseSplat[i * 3 + 2] = gc.rock;
+  baseColors[i * 3] = gc.color.r;
+  baseColors[i * 3 + 1] = gc.color.g;
+  baseColors[i * 3 + 2] = gc.color.b;
 }
 
 // Updates positions, normals and colors of a block of the grid.

@@ -144,7 +144,7 @@ void main() {
     float dist = length(V);
     float hf = exp(-max(W.y, 0.0) * uFogHeight);
     float f = 1.0 - exp(-dist * uFogDensity * (0.3 + 0.7 * hf));
-    vec3 fc = uFogCol + uSunCol * sunAmt * 0.45;
+    vec3 fc = uFogCol + uSunCol * sunAmt * 0.32;
     col = mix(col, fc, clamp(f, 0.0, 1.0));
   }
   col += uSunCol * fx.g * uRayStrength;
@@ -258,7 +258,7 @@ class FxPass extends Pass {
       raysK = THREE.MathUtils.smoothstep(facing, -0.1, 0.45) * THREE.MathUtils.smoothstep(this.sun.dir.y, -0.02, 0.12);
       F.uSun.value.set(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5, raysK);
     } else F.uSun.value.z = 0;
-    C.uRayStrength.value = 0.55;
+    C.uRayStrength.value = 0.42;
     C.uSunDir.value.copy(this.sun.dir);
     C.uSunCol.value.copy(this.sun.color);
     C.uFogCol.value.copy(this.sun.fog);

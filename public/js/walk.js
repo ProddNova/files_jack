@@ -5,10 +5,10 @@ import { getHeight } from './terrain.js';
 import { clamp } from './util.js';
 import { DRONE_FOV } from './drone.js';
 
-const EYE = 0.62;
+const EYE = 0.5; // about 1.6 m, with a house floor of 0.95 units (3 m)
 const BODY = 0.2;
-const WALK = 1.7;
-const RUN = 3.0;
+const WALK = 1.15;
+const RUN = 2.3;
 
 function pushOutRect(p, r, m) {
   const c = Math.cos(r.ang), s = Math.sin(r.ang);

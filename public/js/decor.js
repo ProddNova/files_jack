@@ -1,7 +1,7 @@
 // Small automatic details: grass, wildflowers, rocks, laundry lines, fireflies.
 import * as THREE from '../vendor/three.module.min.js';
 import { rng, col, GeoBuilder } from './util.js';
-import { getHeight, pathAt, ISLAND_R, oasis } from './terrain.js';
+import { getHeight, pathAt, SIZE, oasis } from './terrain.js';
 import { MAT, isNature } from './builders.js';
 import { pointIn } from './placement.js';
 import { TEX } from './shaders.js';
@@ -15,8 +15,8 @@ function tuftGeometry() {
     const a = (k / 4) * Math.PI * 2 + 0.3;
     const cx = Math.cos(a), cz = Math.sin(a);
     const px = -cz * 0.035, pz = cx * 0.035;
-    const lean = 0.09;
-    pos.push(cx * 0.03 - px, 0, cz * 0.03 - pz, cx * 0.03 + px, 0, cz * 0.03 + pz, cx * lean, 0.28 + (k % 2) * 0.08, cz * lean);
+    const lean = 0.06;
+    pos.push(cx * 0.03 - px, 0, cz * 0.03 - pz, cx * 0.03 + px, 0, cz * 0.03 + pz, cx * lean, 0.15 + (k % 2) * 0.05, cz * lean);
     colr.push(base.r, base.g, base.b, base.r, base.g, base.b, tip.r, tip.g, tip.b);
   }
   const g = new THREE.BufferGeometry();
@@ -30,8 +30,8 @@ function scatter(r, count, test) {
   const pts = [];
   let guard = 0;
   while (pts.length < count && guard++ < count * 20) {
-    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * (ISLAND_R + 1);
-    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    // Whole map (islands and mainland): spots in the water get hidden later
+    const x = (r() * 2 - 1) * (SIZE / 2 - 1), z = (r() * 2 - 1) * (SIZE / 2 - 1);
     if (test(x, z)) pts.push({ x, z, s: r.range(0.75, 1.35), rot: r() * Math.PI * 2, r: r() });
   }
   return pts;
@@ -41,9 +41,9 @@ export function createDecor(scene, { lowPower }) {
   const r = rng(77);
   // Scattered over the whole island area; refresh() hides what ends up in water
   const any = () => true;
-  const tufts = scatter(r, lowPower ? 1800 : 3400, any);
-  const flowers = scatter(r, lowPower ? 500 : 900, any);
-  const rocks = scatter(r, 140, any);
+  const tufts = scatter(r, lowPower ? 4000 : 9000, any);
+  const flowers = scatter(r, lowPower ? 1100 : 2200, any);
+  const rocks = scatter(r, 260, any);
 
   const grassMat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 1 });
   // Blades bend more toward the tip; neighbors move together, like a gust passing
@@ -54,7 +54,7 @@ export function createDecor(scene, { lowPower }) {
   {
     vec2 ip = instanceMatrix[3].xz;
     float gust = sin(uTime * 1.3 + ip.x * 0.25 + ip.y * 0.18) * 0.5 + 0.5;
-    float k = transformed.y * transformed.y * (0.35 + uWind * 0.9);
+    float k = transformed.y * transformed.y * (1.0 + uWind * 2.5);
     transformed.x += (sin(uTime * 2.4 + ip.x * 1.7 + ip.y) * 0.3 + gust * 0.7) * k;
     transformed.z += cos(uTime * 2.1 + ip.y * 1.9) * 0.25 * k;
   }`);

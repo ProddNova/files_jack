@@ -12,6 +12,13 @@ export const PROP_RADIUS = {
   botti: 0.6, carretto: 0.9, falo: 0.6, gazebo: 1.4, orto: 1.3, statua: 0.6, cristallo: 0.7, gatto: 0.3, pecora: 0.5,
 };
 
+// The models were drawn big; these bring each one to real size next to
+// houses (one floor = 0.95 units, about 3 m) and people (about 0.55 units).
+export const PROP_REAL = {
+  lampione: 0.75, pozzo: 0.55, panchina: 0.4, vasi: 0.55, fontana: 0.65, bancarella: 0.55, botti: 0.5, carretto: 0.6,
+  falo: 0.6, gazebo: 0.85, orto: 1, statua: 0.8, cristallo: 1, gatto: 0.35, pecora: 0.5, barca: 1,
+};
+
 function lampione(ctx) {
   const { S, Lmp, group, ghost } = ctx;
   S.add('box', [0, 0.1, 0], [0.26, 0.2, 0.26], PAL.iron, null, L.PLAIN);
@@ -278,7 +285,7 @@ function barca(ctx) {
 const STYLE_FN = { lampione, pozzo, panchina, vasi, fontana, bancarella, botti, carretto, falo, gazebo, orto, statua, cristallo, gatto, pecora, barca };
 
 export function propRadius(d) {
-  return (PROP_RADIUS[d.style] ?? 0.5) * clamp(d.s ?? 1, 0.4, 2.5);
+  return (PROP_RADIUS[d.style] ?? 0.5) * (PROP_REAL[d.style] ?? 1) * clamp(d.s ?? 1, 0.4, 2.5);
 }
 
 export function buildProp(d, opts = {}) {
@@ -295,7 +302,7 @@ export function buildProp(d, opts = {}) {
   const inner = new THREE.Group();
   for (const c of [...group.children]) inner.add(c);
   for (const c of holder) inner.add(c);
-  inner.scale.setScalar(k);
+  inner.scale.setScalar(k * (PROP_REAL[style] ?? 1));
   group.add(inner);
   const water = style === 'barca';
   const groundY = () => (water ? 0 : getHeight(d.x, d.z) - 0.02);

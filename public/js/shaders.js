@@ -24,6 +24,9 @@ export const TEX = {
   uCloud: { value: 0.4 },
   uCloudShadow: { value: 0.6 },
   uFx: { value: 1 },
+  uGrid: { value: 0 },
+  uGridC: { value: new THREE.Vector2() },
+  uGridR: { value: 8 },
 };
 
 // Clouds live on a flat layer high above the island. The sky shader looks up
@@ -90,6 +93,9 @@ uniform vec3 uSunCol;
 uniform float uCloud;
 uniform float uCloudShadow;
 uniform float uFx;
+uniform float uGrid;
+uniform vec2 uGridC;
+uniform float uGridR;
 varying vec3 vWPos;
 ${PN_ARB}
 ${CLOUD_GLSL}
@@ -211,11 +217,13 @@ export function terrainize(mat) {
   vec4 pt = vec4(0.5);
   if (w.w > 0.003) {
     float p4 = max(0.0, 1.0 - dot(vPath, vec4(1.0)));
-    pt = layerTex(wp, ${L.COBBLE}) * vPath.x
-       + layerTex(wp, ${L.HERRING}) * vPath.y
-       + layerTex(wp, ${L.ASHLAR}) * vPath.z
-       + layerTex(wp, ${L.DIRT}) * vPath.w
-       + layerTex(wp, ${L.GRAVEL}) * p4;
+    // Street stones at real size (a cobble is about 15 cm): finer than the same
+    // textures on walls
+    pt = layerTex(wp * 2.2, ${L.COBBLE}) * vPath.x
+       + layerTex(wp * 2.0, ${L.HERRING}) * vPath.y
+       + layerTex(wp * 1.4, ${L.ASHLAR}) * vPath.z
+       + layerTex(wp * 1.5, ${L.DIRT}) * vPath.w
+       + layerTex(wp * 2.0, ${L.GRAVEL}) * p4;
   }
   // Paving fades in through its gaps first, so path edges look laid by hand
   float pathEdge = smoothstep(0.15, 0.75, w.w + (pt.a - 0.5) * 0.6);
@@ -228,7 +236,18 @@ export function terrainize(mat) {
   float patchN = vnoise(wp * 0.07) * 0.6 + vnoise(wp * 0.21) * 0.4;
   diffuseColor.rgb *= mix(vec3(1.0), mix(vec3(0.86, 0.9, 0.78), vec3(1.1, 1.06, 0.92), patchN), w.x * uFx);
   // Wet, darker sand right at the waterline
-  diffuseColor.rgb *= 1.0 - smoothstep(0.35, 0.0, vWPos.y) * smoothstep(-0.3, 0.0, vWPos.y) * 0.28 * uFx;`)
+  diffuseColor.rgb *= 1.0 - smoothstep(0.35, 0.0, vWPos.y) * smoothstep(-0.3, 0.0, vWPos.y) * 0.28 * uFx;
+  if (uGrid > 0.0) {
+    // Building grid around the finger: thin lines, a stronger one every 4 cells
+    vec2 gp = wp / uGrid;
+    vec2 gd = abs(fract(gp - 0.5) - 0.5) / max(fwidth(gp), vec2(1e-4));
+    float line = 1.0 - min(min(gd.x, gd.y), 1.0);
+    vec2 gp4 = gp / 4.0;
+    vec2 gd4 = abs(fract(gp4 - 0.5) - 0.5) / max(fwidth(gp4), vec2(1e-4));
+    float major = 1.0 - min(min(gd4.x, gd4.y) * 0.7, 1.0);
+    float fade = 1.0 - smoothstep(uGridR * 0.45, uGridR, length(wp - uGridC));
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.98, 0.92), max(line * 0.45, major * 0.7) * fade);
+  }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
   roughnessFactor = clamp(roughnessFactor - w.w * 0.15 - (tx.a - 0.5) * 0.2, 0.3, 1.0);`)
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
@@ -247,6 +266,6 @@ export function terrainize(mat) {
     }
   }`);
   };
-  mat.customProgramCacheKey = () => 'terrain-v4';
+  mat.customProgramCacheKey = () => 'terrain-v5';
   return mat;
 }

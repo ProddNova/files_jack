@@ -3,9 +3,9 @@
 import { newSeed, round2 } from './util.js';
 import {
   houseDims, HOUSE_LIMITS, ROOF_TYPES, ROOF_COLORS, FACADE_CHOICES, TOWER_TOPS, STONES,
-  WALL_STYLES, MERLON_STYLES, PROP_STYLES, TREE_TYPES, FLOWER_NAMES, HOUSE_STYLES,
+  WALL_STYLES, MERLON_STYLES, PROP_STYLES, TREE_TYPES, FLOWER_NAMES, HOUSE_STYLES, CROPS, CROP_NAMES, fieldDims,
 } from './builders.js';
-import { rotateData } from './tools.js';
+import { rotateData, translateData } from './tools.js';
 
 const NAMES = {
   casa: 'Casa ligure', palazzo: 'Palazzo', villetta: 'Villetta', chiesa: 'Chiesa', porta: 'Porta fortificata', mulino: 'Mulino a vento',
@@ -79,6 +79,11 @@ function controlsFor(kind, data) {
     c.push({ type: 'chips', key: 'style', label: 'Tipo', options: [['pietra', 'Pietra'], ['legno', 'Legno']], value: data.style });
     c.push({ type: 'slider', key: 'w', label: 'Larghezza', min: 1, max: 3.5, step: 0.1, value: data.w ?? 1.6 });
     c.push({ type: 'slider', key: 'h', label: 'Arco', min: 0.3, max: 2.5, step: 0.05, value: data.h ?? 1 });
+  } else if (kind === 'field') {
+    const f = fieldDims(data);
+    c.push({ type: 'chips', key: 'crop', label: 'Coltura', options: CROPS.map((s) => [s, CROP_NAMES[s]]), value: data.crop });
+    c.push({ type: 'slider', key: 'w', label: 'Lunghezza', min: 1.5, max: 24, step: 0.5, value: f.w });
+    c.push({ type: 'slider', key: 'd', label: 'Larghezza', min: 1.5, max: 24, step: 0.5, value: f.d });
   } else if (kind === 'prop') {
     c.push({ type: 'chips', key: 'style', label: 'Tipo', options: PROP_STYLES.map((s) => [s, NAMES[s]]), value: data.style });
     c.push({ type: 'slider', key: 's', label: 'Grandezza', min: 0.4, max: 2.5, step: 0.05, value: data.s ?? 1 });
@@ -93,6 +98,7 @@ function controlsFor(kind, data) {
 }
 
 function titleFor(kind, data) {
+  if (kind === 'field') return 'Campo: ' + (CROP_NAMES[data.crop] || CROP_NAMES.grano).replace(/^\S+ /, '');
   if (kind === 'tree') return NAMES[data.type] || 'Albero';
   if (kind === 'flower') return FLOWER_NAMES[data.variant] || 'Fiori';
   if (kind === 'wall' && !data.style) return NAMES.muretto;
@@ -177,6 +183,34 @@ export function createEditor(G, el) {
 
     const body = document.createElement('div');
     body.className = 'pbody';
+    // Fine moves: one grid step relative to the view, and 15° turns
+    {
+      const row = document.createElement('div');
+      row.className = 'prow';
+      const lab = document.createElement('label');
+      lab.textContent = 'Sposta';
+      const list = document.createElement('div');
+      list.className = 'pchips nudge';
+      const step = () => (G.grid ? G.grid() || 0.25 : 0.25);
+      const move = (fx, fz) => () => {
+        const y = G.yaw ? G.yaw() : 0;
+        const rx = Math.cos(y), rz = -Math.sin(y), ax = -Math.sin(y), az = -Math.cos(y);
+        const st = step();
+        apply(translateData(data(), (rx * fx + ax * fz) * st, (rz * fx + az * fz) * st), true);
+      };
+      const turn = (a) => () => { apply(rotateData(data(), a), true); render(); };
+      for (const [t, title, fn] of [['◀', 'Sinistra', move(-1, 0)], ['▲', 'Avanti', move(0, 1)], ['▼', 'Indietro', move(0, -1)], ['▶', 'Destra', move(1, 0)],
+        ['↺ 15°', 'Ruota di 15°', turn(Math.PI / 12)], ['↻ 15°', 'Ruota di 15° nell\'altro verso', turn(-Math.PI / 12)]]) {
+        const b = document.createElement('button');
+        b.className = 'pchip';
+        b.textContent = t;
+        b.title = title;
+        b.addEventListener('click', fn);
+        list.appendChild(b);
+      }
+      row.append(lab, list);
+      body.appendChild(row);
+    }
     for (const c of controlsFor(k, d)) {
       const row = document.createElement('div');
       row.className = 'prow';

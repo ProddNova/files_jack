@@ -3,7 +3,7 @@ import { rng, round2, newSeed } from './util.js';
 import {
   createTerrain, raycastTerrain, getHeight, restorePath, encodePath, decodePath, heightTexture, HEIGHT_UV,
   snapshotPath, setPath, encodeHeights, decodeHeights, restoreHeights, snapshotHeights, setHeights, resetHeights,
-  newIsland, getIslandSeed, ISLAND_R, getScenario, SCENARIOS, lavaInfo,
+  newIsland, getIslandSeed, ISLAND_R, getScenario, SCENARIOS, lavaInfo, isMainland, SIZE,
 } from './terrain.js';
 import { BUILDERS, disposeGroup, FLOWER_NAMES, isNature } from './builders.js';
 import { footprint, pointIn } from './placement.js';
@@ -11,12 +11,13 @@ import { createWorld } from './world.js';
 import { createTextureArray } from './textures.js';
 import { TEX } from './shaders.js';
 import { createPost } from './post.js';
+import { createVista } from './vista.js';
 import { createDecor } from './decor.js';
 import { createLife } from './life.js';
 import { DroneRig, DRONE_FOV } from './drone.js';
 import { createReflection } from './reflect.js';
 import { setupInput } from './input.js';
-import { createTools, TOOL_DEFS, translateData } from './tools.js';
+import { createTools, TOOL_DEFS, translateData, DRAW_MODES } from './tools.js';
 import { createEditor } from './editor.js';
 import { createWalk } from './walk.js';
 import * as audio from './audio.js';
@@ -67,6 +68,12 @@ TEX.uHeight.value = heightTexture;
 TEX.uHUV.value.set(HEIGHT_UV.scale, HEIGHT_UV.offset);
 const world = createWorld(scene, { lowPower, renderer });
 const decor = createDecor(scene, { lowPower });
+const vista = createVista(scene);
+// After any change of world shape: far landscape and boats follow
+function afterWorld() {
+  vista.rebuild();
+  world.setBoats(!isMainland());
+}
 const life = createLife(scene);
 const post = createPost(renderer, scene, camera);
 const reflection = createReflection(renderer, scene, camera, world);
@@ -131,6 +138,10 @@ const TREE_MIX = {
   autunno: ['quercia', 'quercia', 'betulla', 'abete', 'bush'],
   deserto: ['palm', 'palm', 'cactus', 'cactus', 'rock'],
   vulcano: ['pine', 'palm', 'bush', 'rock', 'rock'],
+  campagna: ['quercia', 'quercia', 'olive', 'cypress', 'betulla', 'bush'],
+  colline: ['cypress', 'cypress', 'olive', 'quercia', 'pine', 'bush'],
+  valle: ['abete', 'abete', 'abete', 'betulla', 'quercia', 'rock'],
+  lago: ['salice', 'betulla', 'quercia', 'abete', 'cypress', 'bush'],
 };
 const treeMix = () => TREE_MIX[getScenario()] || TREE_MIX.riviera;
 
@@ -195,11 +206,24 @@ function toast(text, ms = 2600) {
 const objects = [];
 let undoStack = [];
 const pops = [];
-const RISE = new Set(['house', 'tower', 'wall', 'bridge']);
+const RISE = new Set(['house', 'tower', 'wall', 'bridge', 'field']);
 
 // Walls open a gap where they meet a house (a city gate fills that gap).
 const env = {
   blockedAt: (x, z) => objects.some((o) => o.kind === 'house' && pointIn(o.fp, x, z, 0.15)),
+  // Is there already a joint here (a tower, or the end of an earlier wall of the
+  // same kind)? Then only that one draws the pillar or tower: no doubles.
+  jointAt(x, z, data) {
+    for (const o of objects) {
+      if (o.data === data) break;
+      if (o.kind === 'tower' && Math.hypot(o.data.x - x, o.data.z - z) < 0.9) return true;
+      if (o.kind === 'wall' && o.data.style === data.style) {
+        const p = o.data.pts;
+        if (Math.hypot(p[0][0] - x, p[0][1] - z) < 0.35 || Math.hypot(p[p.length - 1][0] - x, p[p.length - 1][1] - z) < 0.35) return true;
+      }
+    }
+    return false;
+  },
 };
 
 function build(obj) {
@@ -292,7 +316,34 @@ function commit(a) {
   if (empty) return;
   undoStack.push(a);
   if (undoStack.length > 100) undoStack.shift();
+  redoStack = [];
+  updateRedo();
   refreshAll();
+  scheduleSave();
+}
+
+// Redo: what Undo took away comes back (cleared by any new change)
+let redoStack = [];
+function updateRedo() {
+  $('#btn-redo').classList.toggle('hidden', !redoStack.length);
+}
+function redo() {
+  const a = redoStack.pop();
+  updateRedo();
+  if (!a) return;
+  for (const o of a.removed) remove(o);
+  for (const e of a.edits) {
+    e.obj.data = e.after;
+    rebuild(e.obj);
+  }
+  if (a.redoHeights) setHeights(a.redoHeights);
+  if (a.redoPath) setPath(a.redoPath);
+  for (const o of a.added) attach(o);
+  if (a.redoHeights) for (const o of objects) rebuild(o);
+  undoStack.push(a);
+  refreshAll();
+  if (selected) editor.refresh();
+  audio.tick();
   scheduleSave();
 }
 
@@ -302,6 +353,10 @@ function undo() {
     toast('Niente da annullare', 1200);
     return;
   }
+  // Remember the "after" state first, so Redo can bring it back
+  if (a.heightChanges || a.heightSnapshot) a.redoHeights = snapshotHeights();
+  if (a.pathChanges || a.pathSnapshot) a.redoPath = snapshotPath();
+  for (const e of a.edits) e.after = e.obj.data;
   for (const o of a.added) remove(o);
   for (const e of a.edits.slice().reverse()) {
     e.obj.data = e.before;
@@ -313,6 +368,8 @@ function undo() {
   if (a.pathSnapshot) setPath(a.pathSnapshot);
   for (const o of a.removed) attach(o);
   if (a.heightSnapshot) for (const o of objects) rebuild(o);
+  redoStack.push(a);
+  updateRedo();
   refreshAll();
   if (selected) editor.refresh();
   audio.tick();
@@ -464,6 +521,37 @@ function refreshGhost() {
   ghostWanted = null;
 }
 
+// ---------- Line preview and measure hint ----------
+
+const previewMat = new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.9, depthTest: false });
+const previewLine = new THREE.Line(new THREE.BufferGeometry(), previewMat);
+previewLine.renderOrder = 25;
+previewLine.layers.set(1);
+previewLine.frustumCulled = false;
+scene.add(previewLine);
+function showPreview(pts) {
+  previewLine.visible = !!pts;
+  if (!pts) return;
+  const out = [];
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, az] = pts[i - 1], [bx, bz] = pts[i];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.4));
+    for (let k = i === 1 ? 0 : 1; k <= n; k++) {
+      const x = ax + (bx - ax) * (k / n), z = az + (bz - az) * (k / n);
+      out.push(new THREE.Vector3(x, Math.max(getHeight(x, z), 0) + 0.12, z));
+    }
+  }
+  previewLine.geometry.dispose();
+  previewLine.geometry = new THREE.BufferGeometry().setFromPoints(out);
+}
+const hintEl = document.createElement('div');
+hintEl.id = 'hint';
+document.body.appendChild(hintEl);
+function showHint(text) {
+  hintEl.textContent = text || '';
+  hintEl.classList.toggle('show', !!text);
+}
+
 // ---------- Brush cursor ----------
 
 const cursor = new THREE.Mesh(
@@ -512,6 +600,7 @@ function clearWorld() {
 function applySave(p) {
   clearWorld();
   newIsland(p.seed || 0, p.scenario || 'riviera');
+  afterWorld();
   applySeason(p.season || SCENARIOS[getScenario()].season);
   updateScenarioExtras();
   if (p.heights) decodeHeights(p.heights);
@@ -540,11 +629,11 @@ function starterNature(seed) {
   const scen = getScenario();
   const mix = treeMix();
   let trees = 0;
-  for (let i = 0; i < 700 && trees < 60; i++) {
-    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * (ISLAND_R + 2);
+  for (let i = 0; i < 900 && trees < (isMainland() ? 85 : 60); i++) {
+    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * (isMainland() ? SIZE / 2 - 3 : ISLAND_R + 2);
     const x = round2(Math.cos(a) * d), z = round2(Math.sin(a) * d);
     const h = getHeight(x, z);
-    if (h < (scen === 'deserto' ? 0.3 : 1.0) || r() > 0.55) continue;
+    if (h < (scen === 'deserto' ? 0.3 : isMainland() ? 0.35 : 1.0) || r() > 0.55) continue;
     if (scen === 'monti' && h > 4.6) continue;
     if (scen === 'vulcano' && h > 3) continue;
     if (scen === 'deserto' && r() > 0.35) continue;
@@ -570,7 +659,8 @@ function starterNature(seed) {
     }
   }
   const fa = r() * Math.PI * 2;
-  for (let rad = 16; rad < 32; rad += 0.5) {
+  // A lighthouse only where there is a sea coast
+  for (let rad = 16; rad < 32 && !isMainland(); rad += 0.5) {
     const x = Math.cos(fa) * rad, z = Math.sin(fa) * rad;
     if (getHeight(x, z) < 0.5) {
       add('tower', { x: round2(Math.cos(fa) * (rad - 2)), z: round2(Math.sin(fa) * (rad - 2)), seed: 4242, style: 'faro', ang: 0 });
@@ -582,6 +672,7 @@ function starterNature(seed) {
 function freshIsland(seed, scen = getScenario()) {
   clearWorld();
   newIsland(seed, scen);
+  afterWorld();
   applySeason(SCENARIOS[getScenario()].season);
   updateScenarioExtras();
   starterNature(seed);
@@ -597,12 +688,15 @@ const variant = (toolId) => {
 };
 
 let toolName = TOOL_DEFS.some((t) => t.id === prefs.tool) ? prefs.tool : 'case';
-const editor = createEditor({ liveEdit, commitEdit, duplicate, deleteObj, deselect: () => deselect() }, $('#panel'));
+const editor = createEditor({ liveEdit, commitEdit, duplicate, deleteObj, deselect: () => deselect(), yaw: () => rig.theta, grid: () => prefs.grid ?? 0.5 }, $('#panel'));
 
 const G = {
   objects, rig, audio, toast, env, prefs, treeMix,
   add, remove, attach, newAction, commit, refreshAll, afterTerrain, liveReground,
   setGhost, variant, objectAt, select, deselect, liveEdit, commitEdit,
+  grid: () => (prefs.grid ?? 0.5),
+  hint: (text) => showHint(text),
+  preview: (pts) => showPreview(pts),
   get selected() { return selected; },
   openDraft: (h) => { deselect(); editor.openDraft(h); },
   closePanel: () => editor.close(),
@@ -670,6 +764,7 @@ function renderChips() {
       prefs.variants[toolName] = v.id;
       savePrefs();
       renderChips();
+      updateModeBtn();
       audio.tick();
     });
     chips.appendChild(b);
@@ -690,6 +785,7 @@ function setTool(name) {
   cursor.visible = false;
   renderChips();
   toast(TOOL_DEFS.find((t) => t.id === name).hint, 2400);
+  updateModeBtn();
 }
 
 for (const t of TOOL_DEFS) {
@@ -745,6 +841,31 @@ for (const t of TOOL_DEFS) {
 // ---------- Buttons ----------
 
 $('#btn-undo').addEventListener('click', undo);
+$('#btn-redo').addEventListener('click', redo);
+
+// Drawing mode for walls and streets: straight, rectangle, circle, freehand
+const modeBtn = $('#btn-mode');
+function updateModeBtn() {
+  const h = currentHandler();
+  const modes = h && h.modes;
+  modeBtn.classList.toggle('hidden', !modes);
+  if (!modes) return;
+  const m = h.mode();
+  modeBtn.textContent = DRAW_MODES[m].icon;
+  modeBtn.title = DRAW_MODES[m].label;
+}
+modeBtn.addEventListener('click', () => {
+  const h = currentHandler();
+  if (!h || !h.modes) return;
+  const i = h.modes.indexOf(h.mode());
+  const next = h.modes[(i + 1) % h.modes.length];
+  prefs[h.modeKey] = next;
+  savePrefs();
+  updateModeBtn();
+  audio.tick();
+  const label = h.modeKey === 'pathMode' && next === 'rett' ? 'Piazza: trascina da un angolo a quello opposto' : DRAW_MODES[next].label;
+  toast(`${DRAW_MODES[next].icon} ${label}`, 1800);
+});
 $('#btn-center').addEventListener('click', () => rig.recenter());
 
 const timeBtn = $('#btn-time');
@@ -858,7 +979,7 @@ function renderMenu() {
     parent.appendChild(r);
   };
 
-  const isl = section('🏝️ Isole');
+  const isl = section('🌍 Mondi');
   row(isl, 'Salvataggio', [0, 1, 2].map((i) => [`Isola ${i + 1}`, (prefs.slot || 0) === i, () => {
     if ((prefs.slot || 0) === i) return;
     save();
@@ -867,13 +988,17 @@ function renderMenu() {
     loadSlot(i);
     toast(`🏝️ Isola ${i + 1}`, 1200);
   }]));
-  row(isl, 'Nuova isola (sostituisce questa)', Object.entries(SCENARIOS).map(([id, sc]) => [sc.icon + ' ' + sc.name, false, () => {
-    if (!window.confirm(`Creare una nuova isola "${sc.name}" in questo salvataggio? Quella attuale verrà sostituita.`)) return;
+  const newWorld = ([id, sc]) => [sc.icon + ' ' + sc.name, false, () => {
+    if (!window.confirm(`Creare un nuovo mondo "${sc.name}" in questo salvataggio? Quello attuale verrà sostituito.`)) return;
     freshIsland(newSeed(), id);
+    rig.recenter();
     save();
     closeMenu();
-    toast(`${sc.icon} ${sc.name}: tutta da costruire`);
-  }]));
+    toast(`${sc.icon} ${sc.name}: tutto da costruire`);
+  }];
+  const all = Object.entries(SCENARIOS);
+  row(isl, 'Nuovo mondo: terraferma (sostituisce questo)', all.filter(([, sc]) => sc.mainland).map(newWorld));
+  row(isl, 'Nuovo mondo: isole', all.filter(([, sc]) => !sc.mainland).map(newWorld));
   row(isl, null, [['🗑️ Svuota', false, () => { closeMenu(); clearIsland(); }]]);
   row(isl, null, [['📤 Esporta', false, exportIsland], ['📥 Importa', false, () => $('#import-file').click()]]);
 
@@ -892,6 +1017,12 @@ function renderMenu() {
   row(ctl, 'Piazzamento', [
     ['Con conferma ✓', !prefs.quick, () => { prefs.quick = false; savePrefs(); }],
     ['Rapido', !!prefs.quick, () => { prefs.quick = true; savePrefs(); }],
+  ]);
+  row(ctl, 'Griglia (passo)', [
+    ['Spenta', (prefs.grid ?? 0.5) === 0, () => { prefs.grid = 0; savePrefs(); }],
+    ['Fine 0,25', prefs.grid === 0.25, () => { prefs.grid = 0.25; savePrefs(); }],
+    ['0,5', (prefs.grid ?? 0.5) === 0.5, () => { prefs.grid = 0.5; savePrefs(); }],
+    ['1', prefs.grid === 1, () => { prefs.grid = 1; savePrefs(); }],
   ]);
   row(ctl, 'Joystick del drone', [
     ['🕹️ Sì', !prefs.noJoy, () => { prefs.noJoy = false; savePrefs(); document.body.classList.remove('no-joy'); }],
@@ -1030,6 +1161,16 @@ function frame() {
     cursor.material.opacity = 0.55 + Math.sin(elapsed * 5) * 0.2;
   }
   if (selGroup.children.length) selMat.opacity = 0.2 + Math.sin(elapsed * 4) * 0.1;
+  // Grid on the ground around what you are placing or drawing
+  {
+    const h = currentHandler();
+    const g = prefs.grid ?? 0.5;
+    let gx = null, gz = null;
+    if (!walk.active && g && h && h.draft) { gx = h.draft.data.x; gz = h.draft.data.z; }
+    else if (!walk.active && g && h && h.modes && cursor.visible) { gx = cursor.position.x; gz = cursor.position.z; }
+    TEX.uGrid.value = gx == null ? 0 : g;
+    if (gx != null) TEX.uGridC.value.set(gx, gz);
+  }
   selGroup.visible = !walk.active;
   post.setBloom(world.night);
   draw();
@@ -1044,4 +1185,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Handy for debugging from the console
-window.borgo = { objects, rig, world, post, camera, reflection, setTool, undo, prefs, renderer, walk, select, editor, add, freshIsland, refreshAll, applySeason, get tool() { return currentHandler(); } };
+window.borgo = { objects, rig, world, post, camera, reflection, redo, setTool, undo, prefs, renderer, walk, select, editor, add, freshIsland, refreshAll, applySeason, get tool() { return currentHandler(); } };

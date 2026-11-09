@@ -447,6 +447,9 @@ vec3 wN = vec3(0.0, 1.0, 0.0);
       blend = 0;
       return TIMES[timeIndex];
     },
+    setBoats(on) {
+      for (const b of boats) b.visible = on;
+    },
     setShadowSize(n) {
       if (sun.shadow.mapSize.x === n) return;
       sun.shadow.mapSize.set(n, n);
