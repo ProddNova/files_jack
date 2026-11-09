@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Borgo di Mare</title>
+  <meta name="description" content="Costruisci il tuo paesino ligure su un'isola: muri a secco, case colorate, torri, creuze e ulivi.">
+  <meta name="theme-color" content="#cfe9ff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Borgo">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="scene" aria-label="Isola da costruire"></canvas>
+
+  <div id="topbar">
+    <div class="pill title">Borgo di Mare</div>
+    <div class="pill actions">
+      <button id="btn-undo" class="icon" aria-label="Annulla" title="Annulla">↶</button>
+      <button id="btn-time" class="icon" aria-label="Ora del giorno" title="Ora del giorno">☀️</button>
+      <button id="btn-photo" class="icon" aria-label="Foto" title="Foto">📷</button>
+      <button id="btn-sound" class="icon" aria-label="Suono" title="Suono">🔊</button>
+      <button id="btn-clear" class="icon" aria-label="Svuota isola" title="Svuota isola">🗑️</button>
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <nav id="toolbar" aria-label="Strumenti">
+    <button data-tool="camera"><span>✋</span><small>Vista</small></button>
+    <button data-tool="wall"><span>🧱</span><small>Muro</small></button>
+    <button data-tool="house"><span>🏠</span><small>Casa</small></button>
+    <button data-tool="tower"><span>🏰</span><small>Torre</small></button>
+    <button data-tool="path"><span>🥾</span><small>Creuza</small></button>
+    <button data-tool="tree"><span>🌳</span><small>Alberi</small></button>
+    <button data-tool="flower"><span>🌺</span><small>Fiori</small></button>
+    <button data-tool="erase"><span>🧹</span><small>Gomma</small></button>
+  </nav>
+
+  <div id="loading">Sto preparando l'isola…</div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
