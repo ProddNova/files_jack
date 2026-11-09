@@ -1,0 +1,15 @@
+{
+  "name": "Borgo di Mare",
+  "short_name": "Borgo",
+  "description": "Costruisci il tuo paesino ligure su un'isola.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#cfe9ff",
+  "theme_color": "#cfe9ff",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

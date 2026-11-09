@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Borgo di Mare</title>
+  <meta name="description" content="Costruisci il tuo paesino ligure su un'isola: muri a secco, case colorate, torri, creuze e ulivi.">
+  <meta name="theme-color" content="#cfe9ff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Borgo">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="scene" aria-label="Isola da costruire"></canvas>
+  <div id="vignette"></div>
+
+  <div id="topbar">
+    <div id="minimap" role="button" aria-label="Mappa: tocca un punto per andarci" title="Tocca un punto per andarci">
+      <canvas></canvas>
+      <div class="needle"><span>N</span></div>
+    </div>
+    <div class="pill actions">
+      <button id="btn-hud" class="icon" aria-label="Nascondi i comandi" title="Nascondi i comandi">👁</button>
+      <button id="btn-help" class="icon" aria-label="Guida" title="Guida">❔</button>
+      <button id="btn-walk" class="icon" aria-label="Passeggia in prima persona" title="Passeggia">🚶</button>
+      <button id="btn-time" class="icon" aria-label="Ora del giorno" title="Ora del giorno">☀️</button>
+      <button id="btn-photo" class="icon" aria-label="Foto" title="Foto">📷</button>
+      <button id="btn-menu" class="icon" aria-label="Menu" title="Menu">⚙️</button>
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <button id="hud-back" class="pill" aria-label="Mostra i comandi">👁 Comandi</button>
+
+  <div id="subbar">
+    <button id="btn-undo" class="round" aria-label="Annulla" title="Annulla">↶</button>
+    <button id="btn-redo" class="round hidden" aria-label="Rifai" title="Rifai">↷</button>
+    <button id="btn-mode" class="round hidden" aria-label="Modo di disegno" title="Modo di disegno">📏</button>
+    <div id="chips" role="radiogroup" aria-label="Varianti"></div>
+    <button id="btn-center" class="round" aria-label="Ricentra la vista" title="Ricentra la vista">🎯</button>
+  </div>
+
+  <div id="panel" aria-label="Modifica"></div>
+
+  <nav id="toolbar" aria-label="Strumenti"></nav>
+
+  <div id="drone-ui">
+    <div id="djoy" aria-label="Vola"><div id="dknob"></div></div>
+    <div id="dlift">
+      <button id="d-up" class="round" aria-label="Sali" title="Sali">▲</button>
+      <button id="d-down" class="round" aria-label="Scendi" title="Scendi">▼</button>
+    </div>
+  </div>
+
+  <div id="walk-ui">
+    <button id="walk-exit" class="pill">✕ Esci</button>
+    <div id="joy"><div id="knob"></div></div>
+    <div class="walk-hint">Trascina per guardarti intorno</div>
+  </div>
+
+  <div id="menu" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+    <div class="card">
+      <div class="card-head">
+        <h2 id="menu-title">Menu</h2>
+        <button id="menu-close" class="round" aria-label="Chiudi">✕</button>
+      </div>
+      <div id="menu-body"></div>
+    </div>
+  </div>
+  <input id="import-file" type="file" accept="application/json,.json" hidden>
+
+  <div id="help" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <div class="card">
+      <h2 id="help-title">Benvenuto a Borgo di Mare</h2>
+      <p class="lead">Costruisci il tuo borgo, il tuo castello o la tua campagna, su un'isola o in terraferma. Ecco tutto quello che puoi fare.</p>
+
+      <h3>🌐 Muoversi</h3>
+      <ul>
+        <li><b>Un dito</b> lontano dall'anteprima, o sul mare e sul cielo: giri intorno all'isola.</li>
+        <li><b>Due dita</b>: trascina per spostarti, pizzica per lo zoom, ruota per girare. Più ti avvicini, più la vista si abbassa.</li>
+        <li><b>Mappa</b> in alto a sinistra: la freccia è dove guardi, la N indica il nord. <b>Tocca un punto della mappa</b> per andarci. <b>🎯</b> torna alla vista d'insieme.</li>
+        <li><b>👁</b> nasconde tutti i comandi per guardare o fare foto; "👁 Comandi" li riporta.</li>
+        <li>Nel menu ⚙️ puoi passare al <b>drone</b> (volo libero con joystick e ▲ ▼), utile su schermo orizzontale o col computer.</li>
+      </ul>
+
+      <h3>👆 Costruire</h3>
+      <ul>
+        <li><b>Tocca</b> il terreno: compare un'<b>anteprima</b>. Trascinala, sistemala nel pannello e premi <b>✓</b>. Niente viene costruito per sbaglio.</li>
+        <li>Mentre piazzi o disegni compare la <b>griglia</b> sul terreno: tutto si allinea a lei e gira a scatti di 15°. Il passo si cambia nel menu (fine 0,25 · 0,5 · 1 · spenta).</li>
+        <li><b>↶</b> annulla, <b>↷</b> rifà (compare dopo un annulla).</li>
+      </ul>
+
+      <h3>📏 Muri e strade dritti</h3>
+      <ul>
+        <li>Con Muri, Mura del castello e Strade compare il <b>tasto arancione</b> accanto ad annulla: cambia il modo di disegnare.</li>
+        <li><b>📏 Dritto</b>: linee dritte con angoli di 15°. Partendo dalla fine di un muro continui in linea o ad angolo retto, e i pezzi si uniscono senza doppioni.</li>
+        <li><b>⬜ Rettangolo</b>: trascina da un angolo a quello opposto (per le strade diventa una <b>piazza</b> lastricata). <b>⭕ Cerchio</b>: dal centro al bordo. <b>✍️ Libero</b>: segue il dito.</li>
+        <li>In alto vedi le misure mentre disegni.</li>
+      </ul>
+
+      <h3>🏰 Castelli in un gesto</h3>
+      <ul>
+        <li><b>Castello → Fortezza intera</b>: trascina un rettangolo e nascono mura dritte, torri su ogni angolo, la porta con saracinesca sul lato verso di te e il mastio al centro.</li>
+        <li>Oppure componi a pezzi: <b>Mura</b> (in ⬜ o ⭕ fai cinte perfette), bastione, torrione, torretta, mastio, porta, torre quadrata. Le torri si agganciano agli angoli.</li>
+        <li>Con <b>Modifica</b> cambi altezza, spessore, merli, torri sì/no e la loro distanza, tetti e pietra.</li>
+      </ul>
+
+      <h3>🏗️ Strumenti</h3>
+      <ul>
+        <li><b>🏠 Case</b>: casa ligure, villetta, casa di pietra, a graticcio, dei pescatori, casa torre, locanda, fienile, mulino, serra, torre del mago, casa sull'albero.</li>
+        <li><b>🏛️ Edifici</b>: palazzo, palazzo con portico, comune con orologio, villa, mercato coperto, chiesa, cappella, duomo, campanile, torre, faro.</li>
+        <li><b>🧱 Muri</b>: muretto, mura, mattoni, intonacato, ringhiera, palizzata, staccionata, steccato, siepe, ponti di pietra o legno.</li>
+        <li><b>🥾 Strade</b>: ciottoli, mattoni, lastricato, sterrato, ghiaia. Le case si girano verso le strade, lampioni e panchine le guardano da soli.</li>
+        <li><b>🌾 Campi</b>: trascina un rettangolo: grano, vigna, lavanda, girasoli, mais, orto, tulipani o terra arata. Dopo puoi cambiare coltura e misure.</li>
+        <li><b>🌳 Natura</b>, <b>🪑 Arredo</b>, <b>⛰️ Terreno</b> (alza, abbassa, spiana), <b>🧹 Gomma</b>.</li>
+      </ul>
+
+      <h3>✏️ Pannello di modifica</h3>
+      <ul>
+        <li><b>Sposta</b>: ◀ ▲ ▼ ▶ muovono di un passo di griglia rispetto alla vista, <b>↺ ↻ 15°</b> per ruotare di precisione. Rotazione anche col cursore in gradi.</li>
+        <li><b>🎲</b> nuovo aspetto, <b>⧉</b> duplica, <b>🗑</b> elimina. Per ogni cosa: tipo, misure, tetti, colori, pietra.</li>
+      </ul>
+
+      <h3>🚶 A piedi</h3>
+      <ul>
+        <li>Premi <b>🚶</b>: scendi a terra dove stai guardando, ad altezza d'uomo. Joystick per camminare (fino in fondo per correre), trascina per guardarti intorno.</li>
+        <li>Tutto è in scala: un piano di casa è circa 3 metri, una persona 1,75.</li>
+      </ul>
+
+      <h3>🗺️ Mondi, stagioni, grafica</h3>
+      <ul>
+        <li>Dal menu ⚙️ crei un nuovo mondo. <b>Terraferma</b>: campagna col fiume, colline, valle alpina, lago tra i colli. <b>Isole</b>: riviera, arcipelago, laguna, monti innevati, bosco d'autunno, oasi nel deserto, isola vulcanica. Intorno c'è sempre un paesaggio fino all'orizzonte.</li>
+        <li>Stagione (autunno: querce arancioni, inverno: neve), ora del giorno, meteo con nuvole vere che fanno ombra.</li>
+        <li>Grafica <b>✨ Ultra</b>: riflessi nell'acqua, raggi di sole, ombre di contatto, nebbia, colori da film. Se il telefono fatica, scegli Alta o Media.</li>
+        <li>Gli abitanti passeggiano per le strade. <b>📷</b> scatta una foto. Si salva tutto da solo.</li>
+      </ul>
+      <button id="help-close" class="cta">Iniziamo!</button>
+    </div>
+  </div>
+
+  <div id="loading">Sto preparando il mondo…</div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# Blueprint per Render: crea un sito statico che pubblica la cartella public/
+services:
+  - type: web
+    name: borgo-di-mare
+    runtime: static
+    buildCommand: echo "Nessuna build necessaria"
+    staticPublishPath: ./public
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /vendor/*
+        name: Cache-Control
+        value: public, max-age=604800
