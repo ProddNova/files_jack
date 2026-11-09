@@ -32,7 +32,7 @@ Muretti a secco, case colorate con le persiane verdi, torri saracene con la band
 **Opzione B, a mano:**
 1. **New** → **Static Site** → scegli il repository.
 2. Build Command: lascialo vuoto (o `echo ok`).
-3. Publish Directory: `public`.
+3. Publish Directory: `public`. Va bene anche vuoto: l'`index.html` nella cartella principale rimanda al gioco.
 
 Dopo il deploy, apri l'indirizzo `https://...onrender.com` su iPhone con **Safari** → tasto Condividi → **Aggiungi alla schermata Home**. Si apre a tutto schermo come un'app.
 
