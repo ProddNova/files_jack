@@ -23,7 +23,7 @@ const FLOWERS = [
 ];
 
 export const FLOWER_NAMES = FLOWERS.map((f) => f.name);
-export const TREE_TYPES = ['olive', 'pine', 'cypress', 'lemon', 'palm', 'bush', 'rock'];
+export const TREE_TYPES = ['olive', 'pine', 'cypress', 'lemon', 'palm', 'abete', 'quercia', 'betulla', 'salice', 'cactus', 'bush', 'rock'];
 
 export function pickTreeType(r) {
   const v = r();
@@ -115,12 +115,70 @@ function rock(S, r, s) {
   }
 }
 
-const TREE_FN = { olive, pine, cypress, lemon, palm, bush, rock };
+function abete(S, r, s) {
+  S.add('cyl8', [0, 0.3 * s, 0], [0.12 * s, 0.9 * s, 0.12 * s], LEAF.pineTrunk, null, L.BARK);
+  const green = [col('#2e5a3a'), col('#365f3c'), col('#2a5236')];
+  const tiers = r.int(4, 5);
+  for (let i = 0; i < tiers; i++) {
+    const k = 1 - i / (tiers + 0.5);
+    S.add('cone8', [0, (0.7 + i * 0.55) * s, 0], [0.95 * k * s, 0.9 * s, 0.95 * k * s], r.pick(green), [0, r() * 3, 0]);
+  }
+}
+
+function quercia(S, r, s) {
+  S.add('cyl8', [0, 0.55 * s, 0], [0.2 * s, 1.3 * s, 0.2 * s], col('#5e4b3b'), null, L.BARK);
+  for (const a of [0.6, 2.6, 4.4]) S.add('cyl8', [Math.cos(a) * 0.25 * s, 1.15 * s, Math.sin(a) * 0.25 * s], [0.09 * s, 0.7 * s, 0.09 * s], col('#5e4b3b'), [Math.sin(a) * 0.7, 0, -Math.cos(a) * 0.7], L.BARK);
+  const green = [col('#4f7d36'), col('#5a8a3e'), col('#46733a'), col('#638f45')];
+  for (let i = 0; i < 8; i++) {
+    const a = r() * Math.PI * 2, d = r.range(0.2, 0.75) * s;
+    S.add('ico1', [Math.cos(a) * d, (1.7 + r.range(-0.2, 0.45)) * s, Math.sin(a) * d], [0.62 * s, 0.5 * s, 0.62 * s], r.pick(green), [r(), r(), 0], L.LEAF);
+  }
+}
+
+function betulla(S, r, s) {
+  const white = col('#ece8df');
+  S.add('cyl8', [0, 1.0 * s, 0], [0.08 * s, 2.2 * s, 0.08 * s], white, [r.range(-0.08, 0.08), 0, r.range(-0.08, 0.08)], L.PLASTER);
+  for (let i = 0; i < 6; i++) S.add('box', [0, (0.3 + i * 0.32) * s, 0.075 * s], [0.1 * s, 0.03, 0.02], col('#2e2b28'), [0, r() * 3, 0], L.PLAIN);
+  const green = [col('#8fb35a'), col('#9cc066'), col('#7ea64e')];
+  for (let i = 0; i < 6; i++) {
+    const a = r() * Math.PI * 2, d = r.range(0.1, 0.4) * s;
+    S.add('ico', [Math.cos(a) * d, (1.8 + r.range(0, 0.7)) * s, Math.sin(a) * d], [0.36 * s, 0.42 * s, 0.36 * s], r.pick(green), [r(), r(), 0], L.LEAF);
+  }
+}
+
+function salice(S, r, s) {
+  S.add('cyl8', [0, 0.6 * s, 0], [0.16 * s, 1.4 * s, 0.16 * s], col('#6b5c47'), [0.1, 0, 0], L.BARK);
+  const green = [col('#9ab85a'), col('#8aad4f'), col('#a5c264')];
+  S.add('ico1', [0, 1.6 * s, 0], [0.9 * s, 0.45 * s, 0.9 * s], green[0], null, L.LEAF);
+  for (let i = 0; i < 22; i++) {
+    const a = (i / 22) * Math.PI * 2 + r() * 0.2, d = r.range(0.55, 0.85) * s;
+    const len = r.range(0.8, 1.3) * s;
+    S.add('box', [Math.cos(a) * d, 1.6 * s - len / 2, Math.sin(a) * d], [0.16 * s, len, 0.05], r.pick(green), [0, -a, 0], L.LEAF);
+  }
+}
+
+function cactus(S, r, s) {
+  const green = col(r.pick(['#5b8a3a', '#4f7d36', '#6a9944']));
+  const h = r.range(1.2, 1.9) * s;
+  S.add('cyl8', [0, h / 2, 0], [0.16 * s, h, 0.16 * s], green, null, L.EVERGREEN);
+  S.add('ico', [0, h, 0], [0.16 * s, 0.1 * s, 0.16 * s], green, null, L.EVERGREEN);
+  for (const side of [-1, 1]) {
+    if (r() < 0.3) continue;
+    const y = r.range(0.4, 0.75) * h;
+    S.add('cyl8', [side * 0.24 * s, y, 0], [0.1 * s, 0.1 * s, 0.1 * s], green, [0, 0, Math.PI / 2], L.EVERGREEN);
+    S.add('cyl8', [side * 0.32 * s, y + 0.25 * s, 0], [0.1 * s, 0.5 * s, 0.1 * s], green, null, L.EVERGREEN);
+  }
+  if (r() < 0.5) S.add('octa', [0, h + 0.08 * s, 0], [0.08, 0.08, 0.08], col('#e0569f'), null, L.EVERGREEN);
+}
+
+const TREE_FN = { olive, pine, cypress, lemon, palm, abete, quercia, betulla, salice, cactus, bush, rock };
+// These keep their leaves green in autumn
+const EVERGREEN = new Set(['olive', 'pine', 'cypress', 'lemon', 'palm', 'abete', 'cactus']);
 
 export function buildTree(d, opts = {}) {
   const r = rng(d.seed);
   const s = r.range(0.8, 1.25) * clamp(d.s ?? 1, 0.4, 2.5);
-  const S = new GeoBuilder(L.LEAF);
+  const S = new GeoBuilder(EVERGREEN.has(d.type) ? L.EVERGREEN : L.LEAF);
   const rotY = d.ang ?? r() * Math.PI * 2;
   (TREE_FN[d.type] || olive)(S, r, s);
   const group = finish([[S, MAT.solid]], opts.ghost);
@@ -139,7 +197,7 @@ export function buildTree(d, opts = {}) {
 export function buildFlower(d, opts = {}) {
   const r = rng(d.seed);
   const kind = FLOWERS[clamp(d.variant | 0, 0, FLOWERS.length - 1)];
-  const S = new GeoBuilder(L.LEAF);
+  const S = new GeoBuilder(L.EVERGREEN);
   const k = clamp(d.s ?? 1, 0.4, 2.5);
   if (kind.spikes) {
     for (let i = 0; i < 10; i++) {

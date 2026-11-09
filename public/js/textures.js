@@ -7,11 +7,14 @@ import * as THREE from '../vendor/three.module.min.js';
 export const L = {
   PLASTER: 0, STONE: 1, BRICK: 2, TILE: 3, SLATE: 4, WOOD: 5, LEAF: 6, COBBLE: 7,
   ASHLAR: 8, PLAIN: 9, GRASS: 10, SAND: 11, ROCK: 12, BARK: 13, DIRT: 14, WATER: 15,
+  GRAVEL: 16, HERRING: 17, THATCH: 18, MARBLE: 19,
 };
-export const LAYER_COUNT = 16;
+export const LAYER_COUNT = 20;
+// Leaves that keep their green in autumn: same texture as LEAF, flagged by the offset
+L.EVERGREEN = LAYER_COUNT + L.LEAF;
 
 // World units covered by one tile, per layer.
-export const LAYER_SCALE = [2.4, 1.4, 1.0, 1.15, 1.1, 1.0, 0.8, 1.3, 1.9, 1.0, 1.7, 2.2, 2.6, 0.7, 2.0, 9.0];
+export const LAYER_SCALE = [2.4, 1.4, 1.0, 1.15, 1.1, 1.0, 0.8, 1.3, 1.9, 1.0, 1.7, 2.2, 2.6, 0.7, 2.0, 9.0, 1.1, 1.4, 1.0, 1.8];
 
 const GEN_FRAG = /* glsl */ `
 precision highp float;
@@ -218,8 +221,8 @@ vec4 sand(vec2 uv) {
   float n = fbm(uv, ivec2(8), 4, 121);
   float ripple = sin(6.28318 * (uv.y * 7.0 + fbm(uv, ivec2(2), 3, 123) * 2.0));
   float s = speck(uv, 125);
-  float v = 0.5 + (n - 0.5) * 0.12 + (s - 0.5) * 0.1 + ripple * 0.025;
-  return vec4(v * 1.02, v, v * 0.96, ripple * 0.25 + 0.5 + s * 0.2);
+  float v = 0.5 + (n - 0.5) * 0.12 + (s - 0.5) * 0.05 + ripple * 0.025;
+  return vec4(v * 1.02, v, v * 0.96, ripple * 0.2 + 0.5 + (n - 0.5) * 0.15);
 }
 
 vec4 rock(vec2 uv) {
@@ -259,6 +262,55 @@ vec4 water(vec2 uv) {
   return vec4(n * 0.5 + 0.5, waterH(uv));
 }
 
+vec4 gravel(vec2 uv) {
+  vec3 w = worley(uv, 22, 171);
+  vec3 w2 = worley(uv + 0.5, 37, 173);
+  float peb = 1.0 - smoothstep(0.15, 0.55, w.x);
+  float peb2 = 1.0 - smoothstep(0.15, 0.5, w2.x);
+  float tone = 0.45 + w.z * 0.2;
+  float v = mix(0.36, tone, max(peb, peb2 * 0.8)) + (speck(uv, 175) - 0.5) * 0.08;
+  return vec4(v * 1.02, v, v * 0.97, max(peb, peb2 * 0.7));
+}
+
+// Brick paving laid in alternating pairs (basket weave)
+vec4 herring(vec2 uv) {
+  vec2 p = uv * 4.0;
+  vec2 c = floor(p);
+  vec2 f = p - c;
+  bool horiz = mod(c.x + c.y, 2.0) < 0.5;
+  float split = horiz ? f.y : f.x;
+  float along = horiz ? f.x : f.y;
+  float half_ = step(0.5, split);
+  float ds = min(abs(split - 0.5), min(split, 1.0 - split));
+  float da = min(along, 1.0 - along);
+  float m = min(ds, da) / 4.0;
+  float mortar = 1.0 - smoothstep(0.004, 0.009, m);
+  float id = hash(ivec2(int(c.x) * 2 + int(half_), int(c.y)), 181);
+  float det = fbm(uv, ivec2(16), 3, 183);
+  float v = mix(0.42 + id * 0.15 + (det - 0.5) * 0.1, 0.62, mortar);
+  return vec4(v * (1.0 + (id - 0.5) * 0.1), v, v * 0.97, (1.0 - mortar) * 0.85 + det * 0.15);
+}
+
+vec4 thatch(vec2 uv) {
+  float rv = uv.y * 5.0;
+  float fv = fract(rv);
+  float r = floor(rv);
+  float straw = vnoise(vec2(uv.x * 90.0, uv.y * 6.0 + r * 3.1), ivec2(90, 6), 191);
+  float clump = fbm(vec2(uv.x * 4.0, uv.y), ivec2(4, 2), 4, 193);
+  float shade = 0.72 + 0.28 * smoothstep(0.0, 0.5, fv);
+  float v = (0.42 + (straw - 0.5) * 0.3 + (clump - 0.5) * 0.15) * shade;
+  return vec4(v * 1.05, v, v * 0.88, straw * 0.6 + smoothstep(0.0, 0.5, fv) * 0.4);
+}
+
+vec4 marble(vec2 uv) {
+  float n = fbm(uv, ivec2(3), 6, 201);
+  float vein = abs(sin((uv.x * 6.28318 * 2.0 + uv.y * 6.28318 + n * 9.0)));
+  vein = 1.0 - smoothstep(0.0, 0.08, vein);
+  float slab = 1.0 - smoothstep(0.0, 0.006, min(min(fract(uv.x * 2.0), 1.0 - fract(uv.x * 2.0)), min(fract(uv.y * 2.0), 1.0 - fract(uv.y * 2.0))) / 2.0);
+  float v = 0.56 + (n - 0.5) * 0.08 - vein * 0.12 - slab * 0.12;
+  return vec4(v, v, v * 1.01, 0.55 - slab * 0.4 - vein * 0.05);
+}
+
 void main() {
   int l = int(uLayer + 0.5);
   vec2 uv = vUv;
@@ -278,7 +330,11 @@ void main() {
   else if (l == 12) c = rock(uv);
   else if (l == 13) c = bark(uv);
   else if (l == 14) c = dirt(uv);
-  else c = water(uv);
+  else if (l == 15) c = water(uv);
+  else if (l == 16) c = gravel(uv);
+  else if (l == 17) c = herring(uv);
+  else if (l == 18) c = thatch(uv);
+  else c = marble(uv);
   gl_FragColor = clamp(c, 0.0, 1.0);
 }
 `;

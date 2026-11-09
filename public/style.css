@@ -118,9 +118,11 @@ button {
   z-index: 5;
 }
 
+#toolbar { overflow-x: auto; scrollbar-width: none; }
+#toolbar::-webkit-scrollbar { display: none; }
 #toolbar button {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 0 auto;
+  min-width: 46px;
   padding: 6px 0 5px;
   border-radius: 14px;
   display: flex;

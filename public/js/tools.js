@@ -4,46 +4,67 @@
 // not start on the draft just turns the camera.
 import { newSeed, rng, round2 } from './util.js';
 import { getHeight, paintPath, restorePath, sculpt, restoreHeights, changesBox } from './terrain.js';
-import { pickTreeType, FLOWER_NAMES, isNature } from './builders.js';
-import { resolve, snapHouse, snapTower, snapWallEnd, pointIn, footprint } from './placement.js';
+import { FLOWER_NAMES, isNature } from './builders.js';
+import { resolve, snapHouse, snapTower, snapWallEnd, pointIn, footprint, nearestPath } from './placement.js';
 
 const v = (id, label, use, style) => ({ id, label, use, style });
 
 export const TOOL_DEFS = [
   { id: 'edit', icon: '👆', label: 'Modifica', mode: 'edit', hint: 'Tocca un elemento per modificarlo · trascinalo per spostarlo · trascina altrove per girare la vista' },
   {
-    id: 'borgo', icon: '🏠', label: 'Borgo', mode: 'place', hint: 'Tocca dove vuoi costruire, poi sistema e conferma con ✓',
+    id: 'case', icon: '🏠', label: 'Case', mode: 'place', hint: 'Tocca dove vuoi costruire, poi sistema e conferma con ✓',
     variants: [
-      v('casa', '🏠 Casa', 'house', 'casa'), v('palazzo', '🏛️ Palazzo', 'house', 'palazzo'), v('villetta', '🏡 Villetta', 'house', 'villetta'),
-      v('chiesa', '⛪ Chiesa', 'house', 'chiesa'), v('mulino', '🌬️ Mulino', 'house', 'mulino'), v('campanile', '🔔 Campanile', 'tower', 'campanile'),
+      v('casa', '🏠 Casa ligure', 'house', 'casa'), v('villetta', '🏡 Villetta', 'house', 'villetta'), v('rustico', '🪨 Casa di pietra', 'house', 'rustico'),
+      v('graticcio', '🏚️ A graticcio', 'house', 'graticcio'), v('pescatori', '🎣 Pescatori', 'house', 'pescatori'), v('torrecasa', '🗼 Casa torre', 'house', 'torrecasa'),
+      v('locanda', '🍷 Locanda', 'house', 'locanda'), v('fienile', '🌾 Fienile', 'house', 'fienile'), v('mulino', '🌬️ Mulino', 'house', 'mulino'),
+      v('serra', '🪴 Serra', 'house', 'serra'), v('mago', '🔮 Torre del mago', 'house', 'mago'), v('albero', '🌳 Casa sull\'albero', 'house', 'albero'),
+    ],
+  },
+  {
+    id: 'edifici', icon: '🏛️', label: 'Edifici', mode: 'place', hint: 'Tocca dove vuoi costruire, poi sistema e conferma con ✓',
+    variants: [
+      v('palazzo', '🏛️ Palazzo', 'house', 'palazzo'), v('loggia', '🏛️ Con portico', 'house', 'loggia'), v('comune', '🕰️ Comune', 'house', 'comune'),
+      v('villa', '🏰 Villa', 'house', 'villa'), v('mercato', '🧺 Mercato', 'house', 'mercato'), v('chiesa', '⛪ Chiesa', 'house', 'chiesa'),
+      v('cappella', '⛪ Cappella', 'house', 'cappella'), v('duomo', '🕍 Duomo', 'house', 'duomo'), v('campanile', '🔔 Campanile', 'tower', 'campanile'),
       v('saracena', '🗼 Torre', 'tower', 'saracena'), v('faro', '💡 Faro', 'tower', 'faro'),
     ],
   },
   {
     id: 'castello', icon: '🏰', label: 'Castello', mode: 'mixed', hint: 'Mura: trascina il dito, le torri nascono agli angoli · gli altri pezzi: tocca e conferma',
     variants: [
-      v('mura', '🧱 Mura', 'wall', 'castello'), v('torrione', '🏰 Torrione', 'tower', 'torrione'), v('torretta', '🗼 Torretta', 'tower', 'torretta'),
-      v('mastio', '🏯 Mastio', 'tower', 'mastio'), v('porta', '🚪 Porta', 'house', 'porta'), v('quadrata', '⬛ Torre quadrata', 'tower', 'quadrata'),
+      v('mura', '🧱 Mura', 'wall', 'castello'), v('bastione', '🛡️ Bastione', 'wall', 'bastione'), v('torrione', '🏰 Torrione', 'tower', 'torrione'),
+      v('torretta', '🗼 Torretta', 'tower', 'torretta'), v('mastio', '🏯 Mastio', 'tower', 'mastio'), v('porta', '🚪 Porta', 'house', 'porta'),
+      v('quadrata', '⬛ Torre quadrata', 'tower', 'quadrata'),
     ],
   },
   {
-    id: 'recinti', icon: '🧱', label: 'Muri', mode: 'stroke', hint: 'Trascina per costruire · dove passa una creuza si apre un varco',
+    id: 'recinti', icon: '🧱', label: 'Muri', mode: 'stroke', hint: 'Trascina per costruire · dove passa una strada si apre un varco',
     variants: [
-      v('muretto', '🪨 Muretto', 'wall', 'muretto'), v('mura', '🧱 Mura', 'wall', 'mura'), v('staccionata', '🪵 Staccionata', 'wall', 'staccionata'),
-      v('siepe', '🌿 Siepe', 'wall', 'siepe'), v('ponte', '🌉 Ponte', 'bridge', 'pietra'), v('pontelegno', '🪵 Ponte di legno', 'bridge', 'legno'),
+      v('muretto', '🪨 Muretto', 'wall', 'muretto'), v('mura', '🧱 Mura', 'wall', 'mura'), v('mattoni', '🧱 Mattoni', 'wall', 'mattoni'),
+      v('intonaco', '🏳️ Intonacato', 'wall', 'intonaco'), v('ringhiera', '⚜️ Ringhiera', 'wall', 'ringhiera'), v('palizzata', '🪵 Palizzata', 'wall', 'palizzata'),
+      v('staccionata', '🪵 Staccionata', 'wall', 'staccionata'), v('steccato', '🤍 Steccato', 'wall', 'steccato'), v('siepe', '🌿 Siepe', 'wall', 'siepe'),
+      v('ponte', '🌉 Ponte', 'bridge', 'pietra'), v('pontelegno', '🪵 Ponte di legno', 'bridge', 'legno'),
     ],
   },
-  { id: 'path', icon: '🥾', label: 'Creuza', mode: 'stroke', hint: 'Trascina per lastricare una creuza · le case vicine si girano verso di lei' },
   {
-    id: 'nature', icon: '🌳', label: 'Natura', mode: 'stroke', hint: 'Trascina per piantare',
+    id: 'path', icon: '🥾', label: 'Strade', mode: 'stroke', hint: 'Trascina per fare una strada · ripassala con un altro tipo per cambiarla',
+    variants: [
+      v('ciottoli', '🪨 Ciottoli', 'path', 0), v('mattoni', '🧱 Mattoni', 'path', 1), v('lastricato', '⬜ Lastricato', 'path', 2),
+      v('sterrato', '🟫 Sterrato', 'path', 3), v('ghiaia', '⚪ Ghiaia', 'path', 4),
+    ],
+  },
+  {
+    id: 'nature', icon: '🌳', label: 'Natura', mode: 'stroke', hint: 'Trascina per piantare · "Misti" sceglie gli alberi adatti allo scenario',
     variants: [
       v('misti', '🌳 Misti', 'tree', 'misti'), v('olive', '🫒 Ulivi', 'tree', 'olive'), v('pine', '🌲 Pini', 'tree', 'pine'),
-      v('cypress', '🌲 Cipressi', 'tree', 'cypress'), v('palm', '🌴 Palme', 'tree', 'palm'), v('bush', '🌿 Cespugli', 'tree', 'bush'),
-      v('rock', '🪨 Massi', 'tree', 'rock'), v('flower', '🌺 Fiori', 'flower', 'flower'),
+      v('cypress', '🌲 Cipressi', 'tree', 'cypress'), v('palm', '🌴 Palme', 'tree', 'palm'), v('abete', '🎄 Abeti', 'tree', 'abete'),
+      v('quercia', '🌳 Querce', 'tree', 'quercia'), v('betulla', '🌿 Betulle', 'tree', 'betulla'), v('salice', '🌿 Salici', 'tree', 'salice'),
+      v('cactus', '🌵 Cactus', 'tree', 'cactus'), v('bush', '🌿 Cespugli', 'tree', 'bush'), v('rock', '🪨 Massi', 'tree', 'rock'),
+      v('flower', '🌺 Fiori', 'flower', 'flower'),
     ],
   },
   {
-    id: 'prop', icon: '🪑', label: 'Arredo', mode: 'place', hint: 'Tocca dove vuoi l\'oggetto, poi conferma con ✓ · le barche vanno in acqua',
+    id: 'prop', icon: '🪑', label: 'Arredo', mode: 'place', hint: 'Tocca dove vuoi l\'oggetto, poi conferma con ✓ · lampioni e panchine guardano la strada',
     variants: [
       v('lampione', '💡 Lampione', 'prop', 'lampione'), v('fontana', '⛲ Fontana', 'prop', 'fontana'), v('pozzo', '🪣 Pozzo', 'prop', 'pozzo'),
       v('panchina', '🪑 Panchina', 'prop', 'panchina'), v('vasi', '🪴 Vasi', 'prop', 'vasi'), v('bancarella', '🍊 Bancarella', 'prop', 'bancarella'),
@@ -60,7 +81,20 @@ export const TOOL_DEFS = [
   { id: 'erase', icon: '🧹', label: 'Gomma', mode: 'stroke', hint: 'Trascina sopra quello che vuoi togliere' },
 ];
 
-const DEFAULT_W = { casa: 2.4, palazzo: 4.2, villetta: 3, chiesa: 3.2, porta: 4.2, mulino: 2.2 };
+const DEFAULT_W = {
+  casa: 2.4, palazzo: 4.2, villetta: 3, chiesa: 3.2, porta: 4.2, mulino: 2.2, torrecasa: 2.2, rustico: 3.2, graticcio: 3,
+  pescatori: 1.8, locanda: 3.8, fienile: 3.8, serra: 3.2, loggia: 4.5, comune: 4.8, villa: 7, mercato: 4.5, cappella: 2.2,
+  duomo: 6, mago: 2.2, albero: 2.6,
+};
+
+// Lamps reach their arm over the nearest street, benches look at it.
+function faceStreet(style, x, z) {
+  if (style !== 'lampione' && style !== 'panchina') return null;
+  const p = nearestPath(x, z, 4);
+  if (!p || p.dist < 0.05) return null;
+  const dx = (p.x - x) / p.dist, dz = (p.z - z) / p.dist;
+  return round2(style === 'lampione' ? Math.atan2(-dz, dx) : Math.atan2(dx, dz));
+}
 
 // Clears trees and flowers that end up under something new.
 export function clearNature(G, obj, action) {
@@ -132,7 +166,13 @@ function placeHandler(G, toolId) {
       const vr = G.variant(toolId);
       const base = { x: round2(p.x), z: round2(p.z), seed: newSeed(), style: vr.style, ang: round2(G.rig.theta) };
       if (vr.use === 'house') base.w = DEFAULT_W[vr.style] || 2.4;
+      this.manualAng = false;
       return { kind: vr.use, data: base };
+    },
+    orient(data) {
+      if (this.manualAng) return data;
+      const a = faceStreet(data.style, data.x, data.z);
+      return a == null ? data : { ...data, ang: a };
     },
     showDraft() {
       const d = this.draft;
@@ -150,7 +190,7 @@ function placeHandler(G, toolId) {
         ? { kind: this.draft.kind, data: { ...this.draft.data, x: round2(p.x), z: round2(p.z) } }
         : this.makeData(p);
       const res = resolve(kind, this.snap(kind, data, !!this.draft), G.objects);
-      this.draft = { kind, data: res.data, ok: res.ok };
+      this.draft = { kind, data: this.orient(res.data), ok: res.ok };
       if (G.prefs.quick) { this.confirm(); return; }
       this.showDraft();
       G.openDraft(this);
@@ -167,12 +207,13 @@ function placeHandler(G, toolId) {
       const data = { ...this.draft.data, x: round2(p.x + this.grabOff[0]), z: round2(p.z + this.grabOff[1]) };
       const snapped = this.snap(this.draft.kind, data, true);
       const res = resolve(this.draft.kind, snapped, G.objects, { maxR: 1.2 });
-      this.draft = { ...this.draft, data: res.ok ? res.data : snapped, ok: res.ok };
+      this.draft = { ...this.draft, data: this.orient(res.ok ? res.data : snapped), ok: res.ok };
       this.showDraft();
     },
     dragEnd() {},
     // Called by the panel while the player tweaks the draft
     updateDraft(data) {
+      if (data.ang !== this.draft.data.ang) this.manualAng = true;
       const ok = resolve(this.draft.kind, data, G.objects, { maxR: 0 }).ok;
       this.draft = { ...this.draft, data, ok };
       this.showDraft();
@@ -306,9 +347,10 @@ function pathStroke(G) {
   return {
     radius: 0.85,
     valid: true,
-    stamp(p) { paintPath(p.x, p.z, 0.85, 0.45, this.changes); },
+    stamp(p) { paintPath(p.x, p.z, 0.85, 0.45, this.changes, this.type); },
     start(p) {
       if (!p) return;
+      this.type = G.variant('path').style || 0;
       this.changes = new Map();
       this.last = p.clone();
       this.stamp(p);
@@ -343,6 +385,7 @@ function natureStroke(G) {
       const x = round2(p.x + (Math.random() - 0.5) * spread);
       const z = round2(p.z + (Math.random() - 0.5) * spread);
       if (getHeight(x, z) < (flower ? 0.25 : this.vr.style === 'rock' ? -0.3 : 0.3)) return;
+      if (this.vr.style === 'salice' && getHeight(x, z) > 2.5) return;
       const gap = flower ? 0.5 : this.vr.style === 'rock' ? 1.3 : 0.9;
       for (const o of G.objects) {
         if (isNature(o.kind)) {
@@ -352,7 +395,7 @@ function natureStroke(G) {
       const seed = newSeed();
       const obj = flower
         ? G.add('flower', { x, z, seed, variant: this.flowerVariant }, { animate: true })
-        : G.add('tree', { x, z, seed, type: this.vr.style === 'misti' ? pickTreeType(rng(seed ^ 0x5bd1)) : this.vr.style }, { animate: true });
+        : G.add('tree', { x, z, seed, type: this.vr.style === 'misti' ? rng(seed ^ 0x5bd1).pick(G.treeMix()) : this.vr.style }, { animate: true });
       if (obj) {
         this.action.added.push(obj);
         G.audio.pop(flower ? 1.6 : 1.3);
@@ -519,7 +562,7 @@ function editHandler(G) {
 }
 
 export function createTools(G) {
-  const place = { borgo: placeHandler(G, 'borgo'), prop: placeHandler(G, 'prop'), castello: placeHandler(G, 'castello') };
+  const place = { case: placeHandler(G, 'case'), edifici: placeHandler(G, 'edifici'), prop: placeHandler(G, 'prop'), castello: placeHandler(G, 'castello') };
   const strokes = {
     wall: { recinti: wallStroke(G, 'recinti'), castello: wallStroke(G, 'castello') },
     bridge: bridgeStroke(G, 'recinti'),
@@ -532,7 +575,7 @@ export function createTools(G) {
   // The handler for the current tool and variant
   return function current(toolId) {
     if (toolId === 'edit') return edit;
-    if (toolId === 'borgo' || toolId === 'prop') return place[toolId];
+    if (toolId === 'case' || toolId === 'edifici' || toolId === 'prop') return place[toolId];
     if (toolId === 'castello') return G.variant('castello').use === 'wall' ? strokes.wall.castello : place.castello;
     if (toolId === 'recinti') return G.variant('recinti').use === 'bridge' ? strokes.bridge : strokes.wall.recinti;
     return strokes[toolId];

@@ -8,7 +8,7 @@ import { buildBridge } from './build/bridges.js';
 export { MAT, disposeGroup } from './build/common.js';
 export { houseDims, houseRect, HOUSE_STYLES, HOUSE_LIMITS, ROOF_TYPES, ROOF_COLORS, FACADE_CHOICES } from './build/houses.js';
 export { TOWER_STYLES, TOWER_TOPS, STONES, towerRadius } from './build/towers.js';
-export { WALL_STYLES, wallHalf } from './build/walls.js';
+export { WALL_STYLES, wallHalf, MERLON_STYLES } from './build/walls.js';
 export { FLOWER_NAMES, TREE_TYPES, pickTreeType } from './build/nature.js';
 export { PROP_STYLES, PROP_RADIUS, propRadius } from './build/props.js';
 export { BRIDGE_STYLES } from './build/bridges.js';

@@ -1,7 +1,7 @@
 // Small automatic details: grass, wildflowers, rocks, laundry lines, fireflies.
 import * as THREE from '../vendor/three.module.min.js';
 import { rng, col, GeoBuilder } from './util.js';
-import { getHeight, pathAt, ISLAND_R } from './terrain.js';
+import { getHeight, pathAt, ISLAND_R, oasis } from './terrain.js';
 import { MAT, isNature } from './builders.js';
 import { pointIn } from './placement.js';
 
@@ -61,6 +61,13 @@ export function createDecor(scene, { lowPower }) {
   }
 
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  // Scenario and season rules: no grass on desert sand, little under snow, none on volcanic ash
+  let mode = { desert: false, snow: 0, volcano: false };
+  const sparse = (p) => {
+    if (mode.desert && !(oasis && Math.hypot(p.x - oasis.x, p.z - oasis.z) < 7)) return true;
+    if (mode.snow > 0.5 && p.r < 0.75) return true;
+    return false;
+  };
 
   // Puts every blade back on the ground and hides the ones under buildings or paths.
   function refresh(objects) {
@@ -85,7 +92,7 @@ export function createDecor(scene, { lowPower }) {
     const place = (mesh, pts, minH, maxH, yOff, scaleFn) => {
       pts.forEach((p, i) => {
         const h = getHeight(p.x, p.z);
-        const hide = h < minH || h > maxH || pathAt(p.x, p.z) > 0.2 || covered(p.x, p.z);
+        const hide = h < minH || h > maxH || pathAt(p.x, p.z) > 0.2 || (mesh !== rockMesh && (sparse(p) || (mode.volcano && h > 2.8))) || covered(p.x, p.z);
         q.setFromAxisAngle(up, p.rot);
         v.set(p.x, h + yOff * p.s, p.z);
         const k = hide ? 0.0001 : p.s;
@@ -171,6 +178,10 @@ export function createDecor(scene, { lowPower }) {
   scene.add(flies);
 
   return {
+    setMode(m, grassTint) {
+      mode = m;
+      grassMesh.material.color.copy(grassTint);
+    },
     refresh(objects) {
       refresh(objects);
       refreshLaundry(objects);

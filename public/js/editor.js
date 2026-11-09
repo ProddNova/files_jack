@@ -3,12 +3,17 @@
 import { newSeed, round2 } from './util.js';
 import {
   houseDims, HOUSE_LIMITS, ROOF_TYPES, ROOF_COLORS, FACADE_CHOICES, TOWER_TOPS, STONES,
-  WALL_STYLES, PROP_STYLES, TREE_TYPES, FLOWER_NAMES,
+  WALL_STYLES, MERLON_STYLES, PROP_STYLES, TREE_TYPES, FLOWER_NAMES, HOUSE_STYLES,
 } from './builders.js';
 import { rotateData } from './tools.js';
 
 const NAMES = {
   casa: 'Casa ligure', palazzo: 'Palazzo', villetta: 'Villetta', chiesa: 'Chiesa', porta: 'Porta fortificata', mulino: 'Mulino a vento',
+  torrecasa: 'Casa torre', rustico: 'Casa di pietra', graticcio: 'Casa a graticcio', pescatori: 'Casa dei pescatori', locanda: 'Locanda',
+  fienile: 'Fienile', serra: 'Serra', loggia: 'Palazzo con portico', comune: 'Palazzo comunale', villa: 'Villa', mercato: 'Mercato coperto',
+  cappella: 'Cappella', duomo: 'Duomo', mago: 'Torre del mago', albero: 'Casa sull\'albero',
+  bastione: 'Bastione', mattoni: 'Muro di mattoni', intonaco: 'Muro intonacato', ringhiera: 'Ringhiera', palizzata: 'Palizzata', steccato: 'Steccato',
+  abete: 'Abete', quercia: 'Quercia', betulla: 'Betulla', salice: 'Salice', cactus: 'Cactus',
   saracena: 'Torre saracena', quadrata: 'Torre quadrata', campanile: 'Campanile', faro: 'Faro', torrione: 'Torrione', torretta: 'Torretta', mastio: 'Mastio',
   muretto: 'Muretto a secco', mura: 'Mura', castello: 'Mura del castello', staccionata: 'Staccionata', siepe: 'Siepe',
   pietra: 'Ponte di pietra', legno: 'Ponte di legno',
@@ -17,19 +22,31 @@ const NAMES = {
   olive: 'Ulivo', pine: 'Pino', cypress: 'Cipresso', lemon: 'Limone', palm: 'Palma', bush: 'Cespuglio', rock: 'Masso',
 };
 const ROOF_NAMES = { gable: 'Due falde', hip: 'Padiglione', flat: 'Terrazza', dome: 'Cupola', merli: 'Merli', cono: 'Cono', piramide: 'Piramide', piatto: 'Piatto', rovina: 'Rovina' };
-const HOUSE_STYLE_LIST = ['casa', 'palazzo', 'villetta', 'chiesa', 'porta', 'mulino'];
+const HOUSE_STYLE_LIST = HOUSE_STYLES;
+const DEG = Math.PI / 180;
+const MERLON_NAMES = [['guelfi', 'Quadrati'], ['ghibellini', 'A coda di rondine'], ['nessuno', 'Nessuno']];
+const BRICKS = ['#b5654a', '#a8553d', '#c27a5a', '#8e4a38', '#d1a27a'];
+const PLASTERS = ['#efe3c8', '#f2d7b8', '#e9c37a', '#f4efe4', '#e9a3a1', '#b9d3a8', '#9fc3d9', '#f4f1ea'];
+
+// Rotation shown in degrees 0..355
+function rotationControl(data) {
+  const deg = ((Math.round((data.ang || 0) / DEG) % 360) + 360) % 360;
+  return { type: 'slider', key: 'ang', label: 'Rotazione', min: 0, max: 355, step: 5, value: deg, toData: (v) => v * DEG, show: (v) => `${v}°` };
+}
 const TOWER_STYLE_LIST = ['saracena', 'quadrata', 'campanile', 'faro', 'torrione', 'torretta', 'mastio'];
 
 function controlsFor(kind, data) {
   const c = [];
+  if (data.ang != null || kind === 'house' || kind === 'tower' || kind === 'prop') c.push(rotationControl(data));
   if (kind === 'house') {
     const style = HOUSE_LIMITS[data.style] ? data.style : 'casa';
     const lim = HOUSE_LIMITS[style];
     const dims = houseDims(data);
     c.push({ type: 'chips', key: 'style', label: 'Tipo', options: HOUSE_STYLE_LIST.map((s) => [s, NAMES[s]]), value: style, reset: ['d', 'floors', 'roof'] });
     c.push({ type: 'slider', key: 'w', label: style === 'mulino' ? 'Grandezza' : 'Larghezza', min: lim.w[0], max: lim.w[1], step: 0.1, value: dims.w });
-    if (style !== 'mulino') c.push({ type: 'slider', key: 'd', label: 'Profondità', min: lim.d[0], max: lim.d[1], step: 0.1, value: dims.d });
-    c.push({ type: 'slider', key: 'floors', label: style === 'casa' || style === 'palazzo' || style === 'villetta' ? 'Piani' : 'Altezza', min: lim.floors[0], max: lim.floors[1], step: 1, value: dims.floors });
+    if (!['mulino', 'mago', 'albero'].includes(style)) c.push({ type: 'slider', key: 'd', label: 'Profondità', min: lim.d[0], max: lim.d[1], step: 0.1, value: dims.d });
+    const floorsLabel = ['chiesa', 'cappella', 'duomo', 'porta', 'mulino', 'mercato', 'serra', 'albero', 'fienile'].includes(style) ? 'Altezza' : 'Piani';
+    c.push({ type: 'slider', key: 'floors', label: floorsLabel, min: lim.floors[0], max: lim.floors[1], step: 1, value: dims.floors });
     if (ROOF_TYPES[style].length > 1) c.push({ type: 'chips', key: 'roof', label: 'Tetto', options: ROOF_TYPES[style].map((r) => [r, ROOF_NAMES[r]]), value: data.roof });
     c.push({ type: 'swatch', key: 'roofCol', label: 'Colore tetto', options: Object.entries(ROOF_COLORS).map(([k, v]) => [k, v.hex, v.label]), value: data.roofCol });
     c.push({ type: 'swatch', key: 'facade', label: style === 'porta' ? 'Pietra' : 'Facciata', options: FACADE_CHOICES.map((h) => [h, h, h]), value: data.facade, auto: true });
@@ -42,15 +59,22 @@ function controlsFor(kind, data) {
     c.push({ type: 'swatch', key: 'roofCol', label: 'Colore tetto', options: Object.entries(ROOF_COLORS).map(([k, v]) => [k, v.hex, v.label]), value: data.roofCol });
     c.push({ type: 'swatch', key: 'stone', label: 'Pietra', options: Object.entries(STONES).map(([k, h]) => [k, h, k]), value: data.stone, auto: true });
   } else if (kind === 'wall') {
-    c.push({ type: 'chips', key: 'style', label: 'Tipo', options: WALL_STYLES.map((s) => [s, NAMES[s]]), value: data.style });
-    c.push({ type: 'slider', key: 'h', label: 'Altezza', min: 0.5, max: 2, step: 0.05, value: data.h ?? 1 });
-    if (data.style === 'castello') {
-      c.push({ type: 'chips', key: 'top', label: 'Torri', options: [['merli', 'Merli'], ['cono', 'Tetto a cono']], value: data.top });
-      c.push({ type: 'swatch', key: 'roofCol', label: 'Colore tetti', options: Object.entries(ROOF_COLORS).map(([k, v]) => [k, v.hex, v.label]), value: data.roofCol });
+    const st = data.style || 'muretto';
+    c.push({ type: 'chips', key: 'style', label: 'Tipo', options: WALL_STYLES.map((s) => [s, NAMES[s]]), value: st, reset: ['stone'] });
+    c.push({ type: 'slider', key: 'h', label: 'Altezza', min: 0.4, max: 2.2, step: 0.05, value: data.h ?? 1 });
+    if (!['staccionata', 'steccato', 'palizzata'].includes(st)) c.push({ type: 'slider', key: 't', label: 'Spessore', min: 0.5, max: 2, step: 0.05, value: data.t ?? 1 });
+    if (MERLON_STYLES.includes(st)) c.push({ type: 'chips', key: 'merli', label: 'Merli', options: MERLON_NAMES, value: data.merli ?? (st === 'bastione' ? 'nessuno' : 'guelfi') });
+    if (st === 'castello') {
+      c.push({ type: 'chips', key: 'torri', label: 'Torri', options: [['si', 'Sì'], ['no', 'No']], value: data.torri ?? 'si' });
+      if (data.torri !== 'no') {
+        c.push({ type: 'slider', key: 'tp', label: 'Distanza torri', min: 3, max: 20, step: 0.5, value: data.tp ?? 11 });
+        c.push({ type: 'chips', key: 'top', label: 'Tetti torri', options: [['merli', 'Merli'], ['cono', 'A cono']], value: data.top });
+      }
     }
-    if (data.style === 'mura' || data.style === 'castello') {
-      c.push({ type: 'swatch', key: 'stone', label: 'Pietra', options: Object.values(STONES).map((h) => [h, h, h]), value: data.stone, auto: true });
-    }
+    if (st === 'castello' || st === 'bastione') c.push({ type: 'swatch', key: 'roofCol', label: 'Colore tetti', options: Object.entries(ROOF_COLORS).map(([k, v]) => [k, v.hex, v.label]), value: data.roofCol });
+    if (['muretto', 'mura', 'castello', 'bastione'].includes(st)) c.push({ type: 'swatch', key: 'stone', label: 'Pietra', options: Object.values(STONES).map((h) => [h, h, h]), value: data.stone, auto: true });
+    if (st === 'mattoni') c.push({ type: 'swatch', key: 'stone', label: 'Mattoni', options: BRICKS.map((h) => [h, h, h]), value: data.stone, auto: true });
+    if (st === 'intonaco' || st === 'steccato') c.push({ type: 'swatch', key: 'stone', label: 'Colore', options: PLASTERS.map((h) => [h, h, h]), value: data.stone, auto: true });
   } else if (kind === 'bridge') {
     c.push({ type: 'chips', key: 'style', label: 'Tipo', options: [['pietra', 'Pietra'], ['legno', 'Legno']], value: data.style });
     c.push({ type: 'slider', key: 'w', label: 'Larghezza', min: 1, max: 3.5, step: 0.1, value: data.w ?? 1.6 });
@@ -132,8 +156,8 @@ export function createEditor(G, el) {
     const acts = document.createElement('div');
     acts.className = 'pacts';
     acts.append(
-      button('⟲', 'Ruota a sinistra', () => apply(rotateData(data(), Math.PI / 12), true)),
-      button('⟳', 'Ruota a destra', () => apply(rotateData(data(), -Math.PI / 12), true)),
+      button('⟲', 'Ruota a sinistra', () => { apply(rotateData(data(), Math.PI / 4), true); render(); }),
+      button('⟳', 'Ruota a destra', () => { apply(rotateData(data(), -Math.PI / 4), true); render(); }),
       button('🎲', 'Nuovo aspetto', () => apply({ ...data(), seed: newSeed() }, true)),
     );
     if (mode === 'edit') {
@@ -166,13 +190,15 @@ export function createEditor(G, el) {
         input.value = c.value;
         const out = document.createElement('span');
         out.className = 'pval';
-        out.textContent = c.step >= 1 ? c.value : Number(c.value).toFixed(1);
+        const fmt = (v) => (c.show ? c.show(v) : c.step >= 1 ? String(v) : v.toFixed(1));
+        out.textContent = fmt(Number(c.value));
         const val = () => (c.step >= 1 ? parseInt(input.value, 10) : round2(parseFloat(input.value)));
+        const conv = (v) => (c.toData ? round2(c.toData(v)) : v);
         input.addEventListener('input', () => {
-          out.textContent = c.step >= 1 ? val() : val().toFixed(1);
-          apply({ ...data(), [c.key]: val() }, false);
+          out.textContent = fmt(val());
+          apply({ ...data(), [c.key]: conv(val()) }, false);
         });
-        input.addEventListener('change', () => apply({ ...data(), [c.key]: val() }, true));
+        input.addEventListener('change', () => apply({ ...data(), [c.key]: conv(val()) }, true));
         row.append(input, out);
       } else {
         const list = document.createElement('div');

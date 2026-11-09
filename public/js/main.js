@@ -3,7 +3,7 @@ import { rng, round2, newSeed } from './util.js';
 import {
   createTerrain, raycastTerrain, getHeight, restorePath, encodePath, decodePath, heightTexture, HEIGHT_UV,
   snapshotPath, setPath, encodeHeights, decodeHeights, restoreHeights, snapshotHeights, setHeights, resetHeights,
-  newIsland, getIslandSeed, ISLAND_R,
+  newIsland, getIslandSeed, ISLAND_R, getScenario, SCENARIOS, lavaInfo,
 } from './terrain.js';
 import { BUILDERS, disposeGroup, FLOWER_NAMES, isNature } from './builders.js';
 import { footprint, pointIn } from './placement.js';
@@ -65,6 +65,68 @@ const decor = createDecor(scene, { lowPower });
 const life = createLife(scene);
 const post = createPost(renderer, scene, camera);
 let usePost = true;
+
+// ---------- Seasons ----------
+
+const SEASONS = {
+  primavera: { name: 'Primavera', icon: '🌸', leaf: '#9be06a', leaf2: '#c6ec8a', mix: 0.3, grass: '#e6ffd0', snow: 0 },
+  estate: { name: 'Estate', icon: '☀️', leaf: '#ffffff', leaf2: '#ffffff', mix: 0, grass: '#ffffff', snow: 0 },
+  autunno: { name: 'Autunno', icon: '🍂', leaf: '#ff8a2a', leaf2: '#d9442a', mix: 0.85, grass: '#e8d39a', snow: 0 },
+  inverno: { name: 'Inverno', icon: '❄️', leaf: '#5f7a63', leaf2: '#4d6b55', mix: 0.4, grass: '#dfe6e4', snow: 1 },
+};
+let season = 'estate';
+function applySeason(id) {
+  season = SEASONS[id] ? id : 'estate';
+  const S = SEASONS[season];
+  TEX.uLeafTint.value.set(S.leaf);
+  TEX.uLeafTint2.value.set(S.leaf2);
+  TEX.uLeafMix.value = S.mix;
+  TEX.uGrassTint.value.set(S.grass);
+  TEX.uSnow.value = S.snow;
+  const sc = SCENARIOS[getScenario()];
+  decor.setMode({ desert: !!sc.desert, volcano: !!sc.volcano, snow: S.snow }, new THREE.Color(S.grass).lerp(new THREE.Color(S.leaf), 0.3));
+}
+
+// Lava lake in the volcano's crater: glows and lights up the bloom.
+const lavaMat = new THREE.MeshStandardMaterial({ color: '#ff6a1a', emissive: '#ff4a00', emissiveIntensity: 2.2, roughness: 0.6 });
+const lavaGroup = new THREE.Group();
+scene.add(lavaGroup);
+function updateScenarioExtras() {
+  for (const c of [...lavaGroup.children]) lavaGroup.remove(c);
+  if (!lavaInfo) return;
+  const lava = new THREE.Mesh(new THREE.CircleGeometry(lavaInfo.r, 24).rotateX(-Math.PI / 2), lavaMat);
+  lava.position.set(lavaInfo.x, lavaInfo.y, lavaInfo.z);
+  lavaGroup.add(lava);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_GLOW(), color: '#ff7a2a', transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }));
+  glow.position.set(lavaInfo.x, lavaInfo.y + 1.2, lavaInfo.z);
+  glow.scale.setScalar(9);
+  lavaGroup.add(glow);
+}
+function TEX_GLOW() {
+  return scene.userData.glowMap || (scene.userData.glowMap = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, 'rgba(255,220,180,1)');
+    grd.addColorStop(1, 'rgba(255,120,40,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  })());
+}
+
+// Trees that suit each scenario, used by "Misti" and by the starting island.
+const TREE_MIX = {
+  riviera: ['olive', 'olive', 'pine', 'cypress', 'lemon', 'palm', 'bush'],
+  arcipelago: ['palm', 'palm', 'olive', 'pine', 'bush'],
+  laguna: ['salice', 'salice', 'betulla', 'quercia', 'cypress', 'bush'],
+  monti: ['abete', 'abete', 'abete', 'betulla', 'pine', 'rock'],
+  autunno: ['quercia', 'quercia', 'betulla', 'abete', 'bush'],
+  deserto: ['palm', 'palm', 'cactus', 'cactus', 'rock'],
+  vulcano: ['pine', 'palm', 'bush', 'rock', 'rock'],
+};
+const treeMix = () => TREE_MIX[getScenario()] || TREE_MIX.riviera;
 
 const QUALITY = {
   alta: { dpr: 2, post: true, shadow: 2048, label: 'Alta' },
@@ -379,8 +441,10 @@ let saveTimer = 0;
 function serialize() {
   const order = [...objects.filter((o) => o.kind !== 'wall'), ...objects.filter((o) => o.kind === 'wall')];
   return {
-    v: 3,
+    v: 4,
     seed: getIslandSeed(),
+    scenario: getScenario(),
+    season,
     time: world.timeIndex,
     objects: order.map((o) => ({ kind: o.kind, data: o.data })),
     path: encodePath(),
@@ -407,7 +471,9 @@ function clearWorld() {
 
 function applySave(p) {
   clearWorld();
-  newIsland(p.seed || 0);
+  newIsland(p.seed || 0, p.scenario || 'riviera');
+  applySeason(p.season || SCENARIOS[getScenario()].season);
+  updateScenarioExtras();
   if (p.heights) decodeHeights(p.heights);
   if (p.path) decodePath(p.path);
   const list = (p.objects || []).filter((o) => BUILDERS[o.kind]);
@@ -422,23 +488,28 @@ function loadSlot(i) {
   if (raw) {
     try {
       const p = JSON.parse(raw);
-      if (p && p.v >= 1 && p.v <= 3) { applySave(p); return true; }
+      if (p && p.v >= 1 && p.v <= 4) { applySave(p); return true; }
     } catch { /* fall through to a fresh island */ }
   }
-  freshIsland(i === 0 ? 0 : newSeed());
+  freshIsland(i === 0 ? 0 : newSeed(), 'riviera');
   return false;
 }
 
 function starterNature(seed) {
   const r = rng((seed + 2025) >>> 0);
+  const scen = getScenario();
+  const mix = treeMix();
   let trees = 0;
-  for (let i = 0; i < 500 && trees < 55; i++) {
-    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * (ISLAND_R - 3);
+  for (let i = 0; i < 700 && trees < 60; i++) {
+    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * (ISLAND_R + 2);
     const x = round2(Math.cos(a) * d), z = round2(Math.sin(a) * d);
     const h = getHeight(x, z);
-    if (h < 1.3 || r() > 0.55) continue;
+    if (h < (scen === 'deserto' ? 0.3 : 1.0) || r() > 0.55) continue;
+    if (scen === 'monti' && h > 4.6) continue;
+    if (scen === 'vulcano' && h > 3) continue;
+    if (scen === 'deserto' && r() > 0.35) continue;
     if (objects.some((o) => Math.hypot(o.data.x - x, o.data.z - z) < 1.2)) continue;
-    const type = h > 3.2 ? r.pick(['pine', 'cypress', 'pine']) : h > 2 ? r.pick(['olive', 'cypress', 'pine', 'bush']) : r.pick(['olive', 'olive', 'lemon', 'palm', 'bush']);
+    const type = scen === 'riviera' ? (h > 3.2 ? r.pick(['pine', 'cypress', 'pine']) : h > 2 ? r.pick(['olive', 'cypress', 'pine', 'bush']) : r.pick(['olive', 'olive', 'lemon', 'palm', 'bush'])) : r.pick(mix);
     add('tree', { x, z, seed: r.int(1, 1e9), type });
     trees++;
   }
@@ -468,9 +539,11 @@ function starterNature(seed) {
   }
 }
 
-function freshIsland(seed) {
+function freshIsland(seed, scen = getScenario()) {
   clearWorld();
-  newIsland(seed);
+  newIsland(seed, scen);
+  applySeason(SCENARIOS[getScenario()].season);
+  updateScenarioExtras();
   starterNature(seed);
   refreshAll();
 }
@@ -483,11 +556,11 @@ const variant = (toolId) => {
   return def.variants.find((v) => v.id === prefs.variants[toolId]) || def.variants[0];
 };
 
-let toolName = TOOL_DEFS.some((t) => t.id === prefs.tool) ? prefs.tool : 'borgo';
+let toolName = TOOL_DEFS.some((t) => t.id === prefs.tool) ? prefs.tool : 'case';
 const editor = createEditor({ liveEdit, commitEdit, duplicate, deleteObj, deselect: () => deselect() }, $('#panel'));
 
 const G = {
-  objects, rig, audio, toast, env, prefs,
+  objects, rig, audio, toast, env, prefs, treeMix,
   add, remove, attach, newAction, commit, refreshAll, afterTerrain, liveReground,
   setGhost, variant, objectAt, select, deselect, liveEdit, commitEdit,
   get selected() { return selected; },
@@ -704,22 +777,21 @@ function renderMenu() {
     loadSlot(i);
     toast(`🏝️ Isola ${i + 1}`, 1200);
   }]));
-  row(isl, null, [
-    ['🌱 Nuova isola', false, () => {
-      if (!window.confirm('Creare una nuova isola in questo salvataggio? Quella attuale verrà sostituita.')) return;
-      freshIsland(newSeed());
-      save();
-      closeMenu();
-      toast('🌱 Ecco una nuova isola tutta da costruire');
-    }],
-    ['🗑️ Svuota', false, () => { closeMenu(); clearIsland(); }],
-  ]);
+  row(isl, 'Nuova isola (sostituisce questa)', Object.entries(SCENARIOS).map(([id, sc]) => [sc.icon + ' ' + sc.name, false, () => {
+    if (!window.confirm(`Creare una nuova isola "${sc.name}" in questo salvataggio? Quella attuale verrà sostituita.`)) return;
+    freshIsland(newSeed(), id);
+    save();
+    closeMenu();
+    toast(`${sc.icon} ${sc.name}: tutta da costruire`);
+  }]));
+  row(isl, null, [['🗑️ Svuota', false, () => { closeMenu(); clearIsland(); }]]);
   row(isl, null, [['📤 Esporta', false, exportIsland], ['📥 Importa', false, () => $('#import-file').click()]]);
 
   const atm = section('🌤️ Atmosfera');
   row(atm, 'Ora', world.times.map((t, i) => [t.icon + ' ' + t.name, world.timeIndex === i, () => { world.setTime(i); showTimeIcon(); scheduleSave(); }]));
   row(atm, 'Ciclo giorno e notte', [['Automatico', !!prefs.autoCycle, () => setAuto(true)], ['Fermo', !prefs.autoCycle, () => setAuto(false)]]);
   row(atm, 'Meteo', world.weathers.map((w) => [w.icon + ' ' + w.name, (prefs.weather || 'sereno') === w.id, () => setWeather(w.id)]));
+  row(atm, 'Stagione', Object.entries(SEASONS).map(([id, se]) => [se.icon + ' ' + se.name, season === id, () => { applySeason(id); refreshAll(); scheduleSave(); }]));
 
   const gfx = section('🎨 Grafica');
   row(gfx, 'Qualità', Object.entries(QUALITY).map(([k, q]) => [q.label, prefs.quality === k, () => { prefs.quality = k; savePrefs(); applyQuality(); }]));
@@ -869,4 +941,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Handy for debugging from the console
-window.borgo = { objects, rig, world, setTool, undo, prefs, renderer, walk, select, editor, get tool() { return currentHandler(); } };
+window.borgo = { objects, rig, world, setTool, undo, prefs, renderer, walk, select, editor, add, freshIsland, refreshAll, applySeason, get tool() { return currentHandler(); } };

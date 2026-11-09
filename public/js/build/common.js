@@ -31,6 +31,7 @@ export const MAT = {
   crystal: new THREE.MeshStandardMaterial({ color: '#8fe8ff', emissive: '#4fd2ff', emissiveIntensity: 1.2, roughness: 0.15, metalness: 0.1, flatShading: true, transparent: true, opacity: 0.88 }),
   fire: new THREE.MeshBasicMaterial({ color: '#ffb347', transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }),
   water: new THREE.MeshStandardMaterial({ color: '#4aa8c7', roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.85 }),
+  glassClear: new THREE.MeshStandardMaterial({ color: '#d9eef2', roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.32, envMapIntensity: 1.6, depthWrite: false, side: THREE.DoubleSide }),
   glow: new THREE.SpriteMaterial({ map: GLOW, color: '#ffd89a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }),
   pool: new THREE.MeshBasicMaterial({ map: GLOW, color: '#ffc77a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4 }),
   beam: new THREE.MeshBasicMaterial({ color: '#fff1c4', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),

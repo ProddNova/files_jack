@@ -11,7 +11,7 @@ export function footprint(kind, data) {
   }
   if (kind === 'tower') return { type: 'circle', x: data.x, z: data.z, r: towerRadius(data) };
   if (kind === 'prop') return { type: 'circle', x: data.x, z: data.z, r: propRadius(data) };
-  if (kind === 'wall') return { type: 'line', pts: data.pts, half: wallHalf(data.style) };
+  if (kind === 'wall') return { type: 'line', pts: data.pts, half: wallHalf(data.style, data.t) + (data.style === 'bastione' ? 0.5 : 0) };
   if (kind === 'bridge') return { type: 'line', pts: [data.a, data.b], half: (data.w ?? 1.6) / 2 };
   return { type: 'circle', x: data.x, z: data.z, r: (kind === 'tree' ? 0.45 : 0.3) * (data.s ?? 1) };
 }

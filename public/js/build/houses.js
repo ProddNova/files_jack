@@ -2,8 +2,9 @@ import * as THREE from '../../vendor/three.module.min.js';
 import { GeoBuilder, rng, col, jitter, clamp } from '../util.js';
 import { getHeight } from '../terrain.js';
 import { MAT, PAL, L, finish, boxFaces, groundRange } from './common.js';
+import { EXTRA_STYLES, EXTRA_LIMITS, EXTRA_ROOFS, EXTRA_DIMS } from './houses2.js';
 
-const FACADES = {
+export const FACADES = {
   casa: ['#f0b64f', '#e98b5e', '#f4c9a3', '#d8654f', '#f6dc8e', '#e9a3a1', '#f1e4c8', '#cf7d4c', '#f2a65a', '#e7c27d'],
   palazzo: ['#c8553d', '#e0a33a', '#d98e6c', '#e9c37a', '#b8483a', '#d6b25e'],
   villetta: ['#f4efe4', '#f6e3c6', '#e8eef0', '#f3d9d0', '#e9f0dc', '#fbe9b7'],
@@ -16,11 +17,12 @@ export const ROOF_COLORS = {
   rame: { hex: '#5c9c86', layer: L.SLATE, label: 'Rame' },
   blu: { hex: '#3f5fa8', layer: L.SLATE, label: 'Blu' },
   viola: { hex: '#6b4f8f', layer: L.SLATE, label: 'Viola' },
+  paglia: { hex: '#c9a35c', layer: L.THATCH, label: 'Paglia' },
 };
-const SHUTTERS = ['#3d6e4c', '#466f58', '#35624a', '#4f7a5a', '#4d7f86', '#6b8f71'];
-const AWNINGS = [['#c8202e', '#f6f3ec'], ['#2f6fa8', '#f6f3ec'], ['#3d8a5a', '#f2e6c8'], ['#e0a526', '#f6f3ec']];
+export const SHUTTERS = ['#3d6e4c', '#466f58', '#35624a', '#4f7a5a', '#4d7f86', '#6b8f71'];
+export const AWNINGS = [['#c8202e', '#f6f3ec'], ['#2f6fa8', '#f6f3ec'], ['#3d8a5a', '#f2e6c8'], ['#e0a526', '#f6f3ec']];
 
-export const HOUSE_STYLES = ['casa', 'palazzo', 'villetta', 'chiesa', 'porta', 'mulino'];
+export const HOUSE_STYLES = ['casa', 'palazzo', 'villetta', 'chiesa', 'porta', 'mulino', ...Object.keys(EXTRA_LIMITS)];
 
 // Which roofs make sense for each style (first one = default list order).
 export const ROOF_TYPES = {
@@ -30,6 +32,7 @@ export const ROOF_TYPES = {
   chiesa: ['gable', 'dome'],
   porta: ['merli', 'cono', 'piramide'],
   mulino: ['cono'],
+  ...EXTRA_ROOFS,
 };
 
 // Size limits for the editor sliders.
@@ -40,6 +43,7 @@ export const HOUSE_LIMITS = {
   chiesa: { w: [2.6, 5], d: [3.5, 9], floors: [1, 5] },
   porta: { w: [3, 7], d: [1.4, 3.2], floors: [1, 5] },
   mulino: { w: [1.6, 3.2], d: [1.6, 3.2], floors: [2, 6] },
+  ...EXTRA_LIMITS,
 };
 
 // Size of a house from its saved data. Player edits (d, floors) win over the
@@ -60,6 +64,8 @@ export function houseDims(data) {
     d = 2.0; floors = 3;
   } else if (style === 'mulino') {
     d = w; floors = 3;
+  } else if (EXTRA_DIMS[style]) {
+    ({ d, floors, ox = 0, oz = 0, ew = 0, ed = 0 } = EXTRA_DIMS[style](w, r));
   } else {
     d = w * r.range(0.55, 0.85); floors = (w < 2.4 ? 3 : 2) + r.int(0, 2);
   }
@@ -67,7 +73,7 @@ export function houseDims(data) {
   if (data.floors != null) floors = data.floors;
   d = clamp(d, lim.d[0], lim.d[1]);
   floors = clamp(Math.round(floors), lim.floors[0], lim.floors[1]);
-  if (style === 'mulino') d = w;
+  if (style === 'mulino' || style === 'mago' || style === 'albero') d = w;
   if (porch) { oz = 0.55; ed = 1.1; }
   return { style, w, d, floors, porch, ox, oz, ew, ed, flat: false };
 }
@@ -88,7 +94,7 @@ export function houseRect(data) {
 
 // ---------- Roofs ----------
 
-function roofMap(w, d, off = [0, 0, 0]) {
+export function roofMap(w, d, off = [0, 0, 0]) {
   const ridgeX = w >= d;
   const P = ridgeX
     ? (u, y, v) => [u + off[0], y + off[1], v + off[2]]
@@ -96,13 +102,13 @@ function roofMap(w, d, off = [0, 0, 0]) {
   return { ridgeX, P, L: ridgeX ? w : d, Sd: ridgeX ? d : w };
 }
 
-function roofStyle(ctx, fallbackKey) {
+export function roofStyle(ctx, fallbackKey) {
   const key = ROOF_COLORS[ctx.data.roofCol] ? ctx.data.roofCol : fallbackKey;
   return { color: col(ROOF_COLORS[key].hex), layer: ROOF_COLORS[key].layer };
 }
 
 // Two sloped faces plus the underside, so it also looks right from the street.
-function roofGable(S, w, d, yt, rh, o, rs, gableCol, off) {
+export function roofGable(S, w, d, yt, rh, o, rs, gableCol, off) {
   const { ridgeX, P, L: Lw, Sd } = roofMap(w, d, off);
   const Lr = Lw + 2 * o, Sr = Sd + 2 * o;
   const c2 = rs.color.clone().multiplyScalar(0.9);
@@ -119,7 +125,7 @@ function roofGable(S, w, d, yt, rh, o, rs, gableCol, off) {
   return { P, L: Lw, Sd, ridgeX, top: yt + rh };
 }
 
-function roofHip(S, w, d, yt, rh, o, rs, off) {
+export function roofHip(S, w, d, yt, rh, o, rs, off) {
   const { ridgeX, P, L: Lw, Sd } = roofMap(w, d, off);
   const Lr = Lw + 2 * o, Sr = Sd + 2 * o;
   const r = (Lr - Sr) / 2;
@@ -135,7 +141,7 @@ function roofHip(S, w, d, yt, rh, o, rs, off) {
   return { P, L: Lw, Sd, ridgeX, top: yt + rh };
 }
 
-function roofFlat(ctx, w, d, yt, color) {
+export function roofFlat(ctx, w, d, yt, color) {
   const { S } = ctx;
   S.add('box', [0, yt + 0.02, 0], [w + 0.06, 0.08, d + 0.06], PAL.cream, null, L.COBBLE);
   for (const [px, pz, sx, sz] of [[0, d / 2, w + 0.06, 0.12], [0, -d / 2, w + 0.06, 0.12], [w / 2, 0, 0.12, d], [-w / 2, 0, 0.12, d]]) {
@@ -144,7 +150,7 @@ function roofFlat(ctx, w, d, yt, color) {
   return { top: yt + 0.4 };
 }
 
-function chimney(ctx, roof, u, v, yt, rh) {
+export function chimney(ctx, roof, u, v, yt, rh) {
   const yRoof = yt + rh * (1 - Math.abs(v) / (roof.Sd / 2 + 0.2));
   const p = roof.P(u, yRoof + 0.25, v);
   ctx.S.add('box', p, [0.28, 0.8, 0.28], PAL.chimney, null, L.BRICK);
@@ -153,7 +159,7 @@ function chimney(ctx, roof, u, v, yt, rh) {
 
 // ---------- Facade pieces ----------
 
-function windowAt(ctx, face, u, y, o) {
+export function windowAt(ctx, face, u, y, o) {
   const { S, L: Lit, D, r } = ctx;
   const rot = [0, face.rot, 0];
   const { ww, wh } = o;
@@ -191,7 +197,7 @@ function windowAt(ctx, face, u, y, o) {
   }
 }
 
-function doorAt(ctx, face, u, base, o) {
+export function doorAt(ctx, face, u, base, o) {
   const { S } = ctx;
   const rot = [0, face.rot, 0];
   const [fx, fz] = face.place(u, 0.012);
@@ -206,7 +212,7 @@ function doorAt(ctx, face, u, base, o) {
   S.add('box', [sx, base - 0.02, sz], [o.dw + 0.3, 0.1, 0.3], PAL.stoneLight, rot, L.ASHLAR);
 }
 
-function balconyAt(ctx, face, u, y, width) {
+export function balconyAt(ctx, face, u, y, width) {
   const { S } = ctx;
   const rot = [0, face.rot, 0];
   const [bx, bz] = face.place(u, 0.2);
@@ -224,7 +230,7 @@ function balconyAt(ctx, face, u, y, width) {
   }
 }
 
-function awningAt(ctx, face, u, y, width, colors) {
+export function awningAt(ctx, face, u, y, width, colors) {
   const { S } = ctx;
   const n = Math.max(4, Math.round(width / 0.17));
   for (let k = 0; k < n; k++) {
@@ -237,23 +243,23 @@ function awningAt(ctx, face, u, y, width, colors) {
   }
 }
 
-function quoins(ctx, w, d, y0, y1, color, size = 0.16, layer = L.PLASTER) {
+export function quoins(ctx, w, d, y0, y1, color, size = 0.16, layer = L.PLASTER) {
   for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
     ctx.S.add('box', [sx * (w / 2 - size / 2 + 0.02), (y0 + y1) / 2, sz * (d / 2 - size / 2 + 0.02)], [size, y1 - y0, size], color, null, layer);
   }
 }
 
-function windowCount(len, spacing = 0.95) {
+export function windowCount(len, spacing = 0.95) {
   let n = Math.floor((len - 0.4) / spacing);
   if (n < 1) n = len >= 1.0 ? 1 : 0;
   return n;
 }
 
-function facadeColor(ctx, list) {
+export function facadeColor(ctx, list) {
   return ctx.data.facade ? col(ctx.data.facade) : col(ctx.r.pick(list));
 }
 
-function pickRoof(ctx, style, rnd) {
+export function pickRoof(ctx, style, rnd) {
   const types = ROOF_TYPES[style];
   if (ctx.data.roof && types.includes(ctx.data.roof)) return ctx.data.roof;
   return rnd;
@@ -368,7 +374,7 @@ function palazzo(ctx, dims) {
   return roof.top;
 }
 
-function pergola(ctx, x0, x1, z0, z1, yb, h) {
+export function pergola(ctx, x0, x1, z0, z1, yb, h) {
   const { S, r } = ctx;
   for (const [px, pz] of [[x0, z1], [x1, z1], [x0, z0 + 0.1], [x1, z0 + 0.1]]) {
     S.add('box', [px, yb + h / 2, pz], [0.09, h, 0.09], PAL.woodLight, null, L.WOOD);
@@ -626,7 +632,7 @@ function mulino(ctx, dims, group) {
   return H + 1.5;
 }
 
-const STYLE_FN = { casa, palazzo, villetta, chiesa, porta, mulino };
+const STYLE_FN = { casa, palazzo, villetta, chiesa, porta, mulino, ...EXTRA_STYLES };
 
 export function buildHouse(data, opts = {}) {
   const style = STYLE_FN[data.style] ? data.style : 'casa';
@@ -638,11 +644,11 @@ export function buildHouse(data, opts = {}) {
   const y0 = g.hi;
   const extra = new THREE.Group();
   const ctx = {
-    S: new GeoBuilder(), L: new GeoBuilder(), D: new GeoBuilder(), r: rng(data.seed),
+    S: new GeoBuilder(), L: new GeoBuilder(), D: new GeoBuilder(), C: new GeoBuilder(), r: rng(data.seed),
     fBottom: g.lo - y0 - 0.6, data: d0, ghost: opts.ghost, anim: [],
   };
   const top = STYLE_FN[style](ctx, dims, extra);
-  const group = finish([[ctx.S, MAT.solid], [ctx.L, MAT.glassLit], [ctx.D, MAT.glassDark]], opts.ghost);
+  const group = finish([[ctx.S, MAT.solid], [ctx.L, MAT.glassLit], [ctx.D, MAT.glassDark], [ctx.C, MAT.glassClear]], opts.ghost);
   for (const c of [...extra.children]) group.add(c);
   group.position.set(data.x, y0, data.z);
   group.rotation.y = data.ang;
