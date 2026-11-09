@@ -1,7 +1,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { GeoBuilder, rng, col } from './util.js';
 import { MAT } from './builders.js';
-import { getHeight } from './terrain.js';
+import { getHeight, heightTexture, HEIGHT_UV } from './terrain.js';
 
 const TIMES = [
   {
@@ -9,28 +9,28 @@ const TIMES = [
     sun: [0.75, 0.22, 0.5], sunColor: '#ffc8a2', sunInt: 1.7,
     hemiSky: '#f7c9c4', hemiGround: '#6b5a5a', hemiInt: 0.75,
     skyTop: '#86acdb', skyHorizon: '#ffd2b5', fog: '#f3d2c4',
-    water: '#5aa0b4', lit: 0.5, dark: 0.08, stars: 0.1,
+    water: '#3f86a8', shallow: '#8fd0c8', lit: 0.5, dark: 0.08, stars: 0.1, lamps: 0.45, glow: 0.9,
   },
   {
     name: 'Giorno', icon: '☀️',
     sun: [0.45, 0.85, 0.35], sunColor: '#fff3df', sunInt: 2.5,
     hemiSky: '#d2e8ff', hemiGround: '#8a7f5e', hemiInt: 0.9,
     skyTop: '#5ea7e6', skyHorizon: '#d4ecff', fog: '#d0e6f4',
-    water: '#3fa3bd', lit: 0, dark: 0, stars: 0,
+    water: '#2f8fb5', shallow: '#7fe0d2', lit: 0, dark: 0, stars: 0, lamps: 0, glow: 0.5,
   },
   {
     name: 'Tramonto', icon: '🌇',
     sun: [-0.8, 0.18, 0.45], sunColor: '#ff9a55', sunInt: 1.9,
     hemiSky: '#ffb790', hemiGround: '#5a4a6a', hemiInt: 0.65,
     skyTop: '#4a5fa3', skyHorizon: '#ffa070', fog: '#eaa686',
-    water: '#4f7fa0', lit: 0.9, dark: 0.1, stars: 0.15,
+    water: '#3d6f96', shallow: '#d9a98a', lit: 0.9, dark: 0.1, stars: 0.15, lamps: 0.7, glow: 1.4,
   },
   {
     name: 'Notte', icon: '🌙',
     sun: [-0.3, 0.75, -0.4], sunColor: '#8fa6ff', sunInt: 0.5,
     hemiSky: '#34457e', hemiGround: '#141426', hemiInt: 0.4,
     skyTop: '#0a1330', skyHorizon: '#283463', fog: '#1d2647',
-    water: '#1f3a5a', lit: 2.2, dark: 0.18, stars: 1,
+    water: '#18324f', shallow: '#2f5f74', lit: 2.2, dark: 0.18, stars: 1, lamps: 1, glow: 0.25,
   },
 ];
 
@@ -40,29 +40,32 @@ function presetToState(p) {
     sunColor: col(p.sunColor), sunInt: p.sunInt,
     hemiSky: col(p.hemiSky), hemiGround: col(p.hemiGround), hemiInt: p.hemiInt,
     skyTop: col(p.skyTop), skyHorizon: col(p.skyHorizon), fog: col(p.fog),
-    water: col(p.water), lit: p.lit, dark: p.dark, stars: p.stars,
+    water: col(p.water), shallow: col(p.shallow), lit: p.lit, dark: p.dark, stars: p.stars, lamps: p.lamps, glow: p.glow,
   };
 }
 
 function lerpState(out, a, b, t) {
   out.sun.copy(a.sun).lerp(b.sun, t).normalize();
-  for (const k of ['sunColor', 'hemiSky', 'hemiGround', 'skyTop', 'skyHorizon', 'fog', 'water']) {
+  for (const k of ['sunColor', 'hemiSky', 'hemiGround', 'skyTop', 'skyHorizon', 'fog', 'water', 'shallow']) {
     out[k].copy(a[k]).lerp(b[k], t);
   }
-  for (const k of ['sunInt', 'hemiInt', 'lit', 'dark', 'stars']) out[k] = a[k] + (b[k] - a[k]) * t;
+  for (const k of ['sunInt', 'hemiInt', 'lit', 'dark', 'stars', 'lamps', 'glow']) out[k] = a[k] + (b[k] - a[k]) * t;
 }
 
 function cloneState(s) {
   return {
     ...s,
     sun: s.sun.clone(), sunColor: s.sunColor.clone(), hemiSky: s.hemiSky.clone(), hemiGround: s.hemiGround.clone(),
-    skyTop: s.skyTop.clone(), skyHorizon: s.skyHorizon.clone(), fog: s.fog.clone(), water: s.water.clone(),
+    skyTop: s.skyTop.clone(), skyHorizon: s.skyHorizon.clone(), fog: s.fog.clone(), water: s.water.clone(), shallow: s.shallow.clone(),
   };
 }
 
 export function createWorld(scene, { lowPower }) {
   // Sky dome with a soft gradient
-  const skyUniforms = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() } };
+  const skyUniforms = {
+    top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() },
+    sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunColor: { value: new THREE.Color() }, glow: { value: 1 },
+  };
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(400, 24, 12),
     new THREE.ShaderMaterial({
@@ -72,11 +75,16 @@ export function createWorld(scene, { lowPower }) {
       fog: false,
       vertexShader: `varying vec3 vDir;
         void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-      fragmentShader: `uniform vec3 top; uniform vec3 horizon; varying vec3 vDir;
+      fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform vec3 sunColor; uniform float glow;
+        varying vec3 vDir;
         void main() {
-          float h = vDir.y;
+          vec3 d = normalize(vDir);
+          float h = d.y;
           vec3 c = mix(horizon, top, smoothstep(0.0, 0.55, h));
           c = mix(c, horizon * 0.9, smoothstep(0.0, -0.3, h));
+          float sd = max(dot(d, normalize(sunDir)), 0.0);
+          c += sunColor * (pow(sd, 12.0) * 0.35 + pow(sd, 90.0) * 0.6) * glow;
+          c += sunColor * smoothstep(0.9985, 0.9993, sd) * 1.2;
           gl_FragColor = vec4(c, 1.0);
           #include <colorspace_fragment>
         }`,
@@ -114,19 +122,39 @@ export function createWorld(scene, { lowPower }) {
   scene.fog = new THREE.Fog('#d0e6f4', 70, 210);
 
   // Sea with gentle animated waves
-  const waterUniforms = { uTime: { value: 0 } };
+  // The water reads the island's height map: lighter near the shore, with moving foam.
+  const waterUniforms = {
+    uTime: { value: 0 },
+    uHeight: { value: heightTexture },
+    uHUV: { value: new THREE.Vector2(HEIGHT_UV.scale, HEIGHT_UV.offset) },
+    uShallow: { value: new THREE.Color('#7fe0d2') },
+  };
   const waterMat = new THREE.MeshStandardMaterial({
-    color: '#3fa3bd', transparent: true, opacity: 0.8, roughness: 0.25, metalness: 0.05, flatShading: true,
+    color: '#2f8fb5', transparent: true, opacity: 0.86, roughness: 0.22, metalness: 0.05, flatShading: true,
   });
   waterMat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = waterUniforms.uTime;
-    shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      `vec3 transformed = vec3(position);
-       transformed.z += sin(position.x * 0.33 + uTime * 1.1) * 0.07
-         + sin(position.y * 0.41 + uTime * 0.85) * 0.06
-         + sin((position.x + position.y) * 0.9 + uTime * 1.7) * 0.025;`,
-    );
+    Object.assign(shader.uniforms, waterUniforms);
+    shader.vertexShader = 'uniform float uTime;\nvarying vec2 vWXZ;\n' + shader.vertexShader
+      .replace('#include <begin_vertex>',
+        `vec3 transformed = vec3(position);
+         transformed.z += sin(position.x * 0.33 + uTime * 1.1) * 0.07
+           + sin(position.y * 0.41 + uTime * 0.85) * 0.06
+           + sin((position.x + position.y) * 0.9 + uTime * 1.7) * 0.025;`)
+      .replace('#include <project_vertex>', '#include <project_vertex>\n  vWXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+    shader.fragmentShader = 'uniform float uTime;\nuniform sampler2D uHeight;\nuniform vec2 uHUV;\nuniform vec3 uShallow;\nvarying vec2 vWXZ;\n' + shader.fragmentShader
+      .replace('#include <color_fragment>',
+        `#include <color_fragment>
+         vec2 huv = vWXZ * uHUV.x + uHUV.y;
+         float gh = -3.0;
+         if (huv.x > 0.0 && huv.x < 1.0 && huv.y > 0.0 && huv.y < 1.0) gh = texture2D(uHeight, huv).r * 6.0 - 3.0;
+         float depth = max(-gh, 0.0);
+         diffuseColor.rgb = mix(uShallow, diffuseColor.rgb, smoothstep(0.0, 1.6, depth));
+         float wob = sin(uTime * 1.4 + vWXZ.x * 0.9 + vWXZ.y * 0.7) * 0.07;
+         float band = 1.0 - smoothstep(0.0, 0.32 + wob, depth);
+         float ripple = 0.55 + 0.45 * sin(vWXZ.x * 3.3 + uTime * 0.9) * sin(vWXZ.y * 2.9 - uTime * 0.8);
+         float foam = band * ripple;
+         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), foam * 0.85);
+         diffuseColor.a = mix(diffuseColor.a, 0.55, smoothstep(0.6, 0.0, depth)) + foam * 0.4;`);
   };
   // Seabed far from the island, so the island's square edge never shows through the water
   const seabed = new THREE.Mesh(
@@ -222,6 +250,14 @@ export function createWorld(scene, { lowPower }) {
     skyUniforms.horizon.value.copy(cur.skyHorizon);
     scene.fog.color.copy(cur.fog);
     waterMat.color.copy(cur.water);
+    waterUniforms.uShallow.value.copy(cur.shallow);
+    skyUniforms.sunDir.value.copy(cur.sun);
+    skyUniforms.sunColor.value.copy(cur.sunColor);
+    skyUniforms.glow.value = cur.glow;
+    MAT.glow.opacity = cur.lamps;
+    MAT.pool.opacity = cur.lamps * 0.5;
+    MAT.beam.opacity = cur.lamps * 0.22;
+    MAT.lamp.emissiveIntensity = 0.1 + cur.lamps * 2.5;
     MAT.glassLit.emissiveIntensity = cur.lit;
     MAT.glassDark.emissiveIntensity = cur.dark;
     starMat.opacity = cur.stars;
@@ -232,6 +268,7 @@ export function createWorld(scene, { lowPower }) {
   return {
     times: TIMES,
     get timeIndex() { return timeIndex; },
+    get night() { return cur.lamps; },
     setTime(i) {
       timeIndex = ((i % TIMES.length) + TIMES.length) % TIMES.length;
       from = cloneState(cur);

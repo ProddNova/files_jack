@@ -18,11 +18,12 @@
 </head>
 <body>
   <canvas id="scene" aria-label="Isola da costruire"></canvas>
+  <div id="vignette"></div>
 
   <div id="topbar">
     <div class="pill title">Borgo di Mare</div>
     <div class="pill actions">
-      <button id="btn-undo" class="icon" aria-label="Annulla" title="Annulla">↶</button>
+      <button id="btn-help" class="icon" aria-label="Come si gioca" title="Come si gioca">❔</button>
       <button id="btn-time" class="icon" aria-label="Ora del giorno" title="Ora del giorno">☀️</button>
       <button id="btn-photo" class="icon" aria-label="Foto" title="Foto">📷</button>
       <button id="btn-sound" class="icon" aria-label="Suono" title="Suono">🔊</button>
@@ -32,16 +33,30 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <nav id="toolbar" aria-label="Strumenti">
-    <button data-tool="camera"><span>✋</span><small>Vista</small></button>
-    <button data-tool="wall"><span>🧱</span><small>Muro</small></button>
-    <button data-tool="house"><span>🏠</span><small>Casa</small></button>
-    <button data-tool="tower"><span>🏰</span><small>Torre</small></button>
-    <button data-tool="path"><span>🥾</span><small>Creuza</small></button>
-    <button data-tool="tree"><span>🌳</span><small>Alberi</small></button>
-    <button data-tool="flower"><span>🌺</span><small>Fiori</small></button>
-    <button data-tool="erase"><span>🧹</span><small>Gomma</small></button>
-  </nav>
+  <div id="subbar">
+    <button id="btn-undo" class="round" aria-label="Annulla" title="Annulla">↶</button>
+    <div id="chips" role="radiogroup" aria-label="Varianti"></div>
+    <button id="btn-center" class="round" aria-label="Ricentra la vista" title="Ricentra la vista">🎯</button>
+  </div>
+
+  <nav id="toolbar" aria-label="Strumenti"></nav>
+
+  <div id="help" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <div class="card">
+      <h2 id="help-title">Come si gioca</h2>
+      <ul>
+        <li><b>1 dito</b> sull'isola: usi lo strumento scelto in basso</li>
+        <li><b>1 dito</b> sul mare o sul cielo: giri la vista</li>
+        <li><b>2 dita</b>: trascina per spostarti, pizzica per lo zoom, ruota per girare</li>
+        <li>Più ti avvicini, più la vista si abbassa</li>
+        <li>Sopra la barra scegli le <b>varianti</b>: palazzo, chiesa, faro, mura…</li>
+        <li>Tocca una casa o una torre già fatta per <b>cambiarle aspetto</b></li>
+        <li>Le case si <b>allineano da sole</b> alle vicine e si girano verso le creuze</li>
+        <li><b>↶</b> annulla tutto, anche il terreno · <b>🎯</b> ricentra</li>
+      </ul>
+      <button id="help-close" class="cta">Ho capito</button>
+    </div>
+  </div>
 
   <div id="loading">Sto preparando l'isola…</div>
 

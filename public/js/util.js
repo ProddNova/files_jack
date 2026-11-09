@@ -68,14 +68,25 @@ export function jitter(color, r, amount = 0.06) {
 // Unit shapes, reused by every builder.
 const flat = (g) => (g.index ? g.toNonIndexed() : g);
 
+// Half disc facing +z, for arches: x in [-1, 1], y in [0, 1], thickness 1 along z.
+const halfDisc = new THREE.CylinderGeometry(1, 1, 1, 10, 1, false, Math.PI / 2, Math.PI).rotateX(Math.PI / 2);
+// Square pyramid with a 1x1 base, centered vertically.
+const pyr4 = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1).rotateY(Math.PI / 4);
+
 const UNIT = {
   box: flat(new THREE.BoxGeometry(1, 1, 1)),
+  cyl6: flat(new THREE.CylinderGeometry(1, 1, 1, 6, 1)),
   cyl8: flat(new THREE.CylinderGeometry(1, 1, 1, 8, 1)),
   cyl12: flat(new THREE.CylinderGeometry(1, 1, 1, 12, 1)),
+  cyl16: flat(new THREE.CylinderGeometry(1, 1, 1, 16, 1)),
   ico: flat(new THREE.IcosahedronGeometry(1, 0)),
+  ico1: flat(new THREE.IcosahedronGeometry(1, 1)),
   dode: flat(new THREE.DodecahedronGeometry(1, 0)),
   octa: flat(new THREE.OctahedronGeometry(1, 0)),
   cone8: flat(new THREE.ConeGeometry(1, 1, 8, 1)),
+  cone12: flat(new THREE.ConeGeometry(1, 1, 12, 1)),
+  pyr4: flat(pyr4),
+  arch: flat(halfDisc),
 };
 
 const tapered = new Map();
@@ -169,3 +180,12 @@ export function distToSegment2(px, pz, ax, az, bx, bz) {
   const x = ax + dx * t - px, z = az + dz * t - pz;
   return Math.sqrt(x * x + z * z);
 }
+
+export function angleDiff(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+export const round2 = (v) => Math.round(v * 100) / 100;
