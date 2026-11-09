@@ -23,11 +23,11 @@
   <div id="topbar">
     <div class="pill title">Borgo di Mare</div>
     <div class="pill actions">
-      <button id="btn-help" class="icon" aria-label="Come si gioca" title="Come si gioca">❔</button>
+      <button id="btn-help" class="icon" aria-label="Guida" title="Guida">❔</button>
+      <button id="btn-walk" class="icon" aria-label="Passeggia in prima persona" title="Passeggia">🚶</button>
       <button id="btn-time" class="icon" aria-label="Ora del giorno" title="Ora del giorno">☀️</button>
       <button id="btn-photo" class="icon" aria-label="Foto" title="Foto">📷</button>
-      <button id="btn-sound" class="icon" aria-label="Suono" title="Suono">🔊</button>
-      <button id="btn-clear" class="icon" aria-label="Svuota isola" title="Svuota isola">🗑️</button>
+      <button id="btn-menu" class="icon" aria-label="Menu" title="Menu">⚙️</button>
     </div>
   </div>
 
@@ -39,22 +39,89 @@
     <button id="btn-center" class="round" aria-label="Ricentra la vista" title="Ricentra la vista">🎯</button>
   </div>
 
+  <div id="panel" aria-label="Modifica"></div>
+
   <nav id="toolbar" aria-label="Strumenti"></nav>
+
+  <div id="walk-ui">
+    <button id="walk-exit" class="pill">✕ Esci</button>
+    <div id="joy"><div id="knob"></div></div>
+    <div class="walk-hint">Trascina per guardarti intorno</div>
+  </div>
+
+  <div id="menu" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+    <div class="card">
+      <div class="card-head">
+        <h2 id="menu-title">Menu</h2>
+        <button id="menu-close" class="round" aria-label="Chiudi">✕</button>
+      </div>
+      <div id="menu-body"></div>
+    </div>
+  </div>
+  <input id="import-file" type="file" accept="application/json,.json" hidden>
 
   <div id="help" role="dialog" aria-modal="true" aria-labelledby="help-title">
     <div class="card">
-      <h2 id="help-title">Come si gioca</h2>
+      <h2 id="help-title">Benvenuto a Borgo di Mare</h2>
+      <p class="lead">Costruisci il tuo paesino ligure (o il tuo castello) su un'isola. Ecco tutto quello che puoi fare.</p>
+
+      <h3>👆 Gesti</h3>
       <ul>
-        <li><b>1 dito</b> sull'isola: usi lo strumento scelto in basso</li>
-        <li><b>1 dito</b> sul mare o sul cielo: giri la vista</li>
-        <li><b>2 dita</b>: trascina per spostarti, pizzica per lo zoom, ruota per girare</li>
-        <li>Più ti avvicini, più la vista si abbassa</li>
-        <li>Sopra la barra scegli le <b>varianti</b>: palazzo, chiesa, faro, mura…</li>
-        <li>Tocca una casa o una torre già fatta per <b>cambiarle aspetto</b></li>
-        <li>Le case si <b>allineano da sole</b> alle vicine e si girano verso le creuze</li>
-        <li><b>↶</b> annulla tutto, anche il terreno · <b>🎯</b> ricentra</li>
+        <li><b>Tocca</b> l'isola per costruire: compare un'<b>anteprima</b>. Trascinala per spostarla, sistemala nel pannello e premi <b>✓</b>. Niente viene costruito per sbaglio.</li>
+        <li><b>Trascina con un dito</b> lontano dall'anteprima, oppure sul mare o sul cielo: giri la vista.</li>
+        <li><b>Due dita</b>: trascina per spostarti, pizzica per lo zoom, ruota per girare.</li>
+        <li>Più ti avvicini, più la camera si abbassa. <b>🎯</b> ricentra, <b>↶</b> annulla qualsiasi cosa.</li>
       </ul>
-      <button id="help-close" class="cta">Ho capito</button>
+
+      <h3>🏗️ Strumenti (barra in basso, varianti sopra)</h3>
+      <ul>
+        <li><b>👆 Modifica</b>: tocca qualunque cosa per cambiarla. Trascinala per spostarla.</li>
+        <li><b>🏠 Borgo</b>: casa ligure, palazzo, villetta col pergolato, chiesa, mulino a vento, campanile, torre saracena, faro.</li>
+        <li><b>🏰 Castello</b>: mura (trascina il dito: le torri nascono da sole agli angoli), torrione, torretta a guglia, mastio, porta con saracinesca, torre quadrata.</li>
+        <li><b>🧱 Muri</b>: muretto, mura, staccionata, siepe, <b>ponti</b> di pietra o legno (trascina da una riva all'altra).</li>
+        <li><b>🥾 Creuza</b>: dipingi strade di ciottoli. Le case si girano verso di loro e non ci si costruisce sopra.</li>
+        <li><b>🌳 Natura</b>: ulivi, pini, cipressi, palme, limoni, cespugli, massi, fiori.</li>
+        <li><b>🪑 Arredo</b>: lampioni, fontana, pozzo, panchine, vasi, bancarella, botti, carretto, falò, gazebo, orto, statua, cristallo magico, gatti, pecore, barche.</li>
+        <li><b>⛰️ Terreno</b>: tieni premuto per alzare, abbassare o spianare. Scava sotto il mare per fare un laghetto.</li>
+        <li><b>🧹 Gomma</b>: trascina sopra ciò che vuoi togliere.</li>
+      </ul>
+
+      <h3>✏️ Pannello di modifica</h3>
+      <ul>
+        <li><b>⟲ ⟳</b> ruota, <b>🎲</b> nuovo aspetto, <b>⧉</b> duplica, <b>🗑</b> elimina.</li>
+        <li>Case: tipo, larghezza, profondità, piani, tetto (due falde, padiglione, terrazza, cupola), colore del tetto (coppi, ardesia, rame, blu, viola), colore della facciata.</li>
+        <li>Torri: tipo, altezza, larghezza, cima (merli, cono, piramide, terrazza, rovina), pietra.</li>
+        <li>Muri: tipo e altezza. Ponti: larghezza e arco. Piante e arredi: grandezza.</li>
+      </ul>
+
+      <h3>🏰 Per fare un castello</h3>
+      <ul>
+        <li>Scegli <b>Castello → Mura</b> e disegna un anello: se chiudi il giro, il muro si chiude da solo.</li>
+        <li>Metti una <b>Porta</b> sul muro: le mura si aprono da sole per farla entrare. Fai passare una creuza dalla porta.</li>
+        <li>Al centro un <b>Mastio</b>, sugli angoli <b>Torrioni</b> o <b>Torrette</b>. Le torri si agganciano ai muri.</li>
+        <li>Con <b>Modifica</b> alza le torri e dai tetti blu o viola per un tocco fiabesco.</li>
+      </ul>
+
+      <h3>🚶 Passeggiata</h3>
+      <ul>
+        <li>Premi <b>🚶</b> in alto: cammini nel tuo borgo. Joystick a sinistra, spinto fino in fondo per correre. Trascina il resto dello schermo per guardarti intorno.</li>
+        <li>Puoi salire sui ponti. Le case e i muri ti fermano. Il mare profondo no, quello non si attraversa.</li>
+      </ul>
+
+      <h3>✨ Da solo</h3>
+      <ul>
+        <li>Le case si mettono a schiera, i muri si aprono sulle creuze, compaiono panni stesi tra le case vicine.</li>
+        <li>Gli abitanti escono di casa e passeggiano. La sera si accendono finestre, lampioni e il faro, e arrivano le lucciole.</li>
+      </ul>
+
+      <h3>⚙️ Menu</h3>
+      <ul>
+        <li>3 isole salvate, nuova isola casuale, esporta e importa un file per condividerla.</li>
+        <li>Ora del giorno, ciclo automatico, meteo (sereno, nuvoloso, pioggia).</li>
+        <li>Grafica (alta, media, bassa), effetto miniatura, piazzamento rapido senza conferma, suono.</li>
+        <li><b>📷</b> scatta una foto da condividere. Si salva tutto da solo.</li>
+      </ul>
+      <button id="help-close" class="cta">Iniziamo!</button>
     </div>
   </div>
 

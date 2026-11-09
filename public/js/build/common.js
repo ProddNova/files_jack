@@ -1,5 +1,7 @@
 import * as THREE from '../../vendor/three.module.min.js';
 import { col } from '../util.js';
+import { texturize } from '../shaders.js';
+export { L } from '../textures.js';
 
 // Soft round glow, drawn once on a canvas and reused by every lamp.
 function glowTexture() {
@@ -22,10 +24,13 @@ const GLOW = glowTexture();
 // Shared materials: every object uses the same few, so the GPU stays happy.
 // Their brightness at night is driven by world.js.
 export const MAT = {
-  solid: new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.88, metalness: 0 }),
-  glassLit: new THREE.MeshStandardMaterial({ color: '#2a3343', emissive: '#ffb45e', emissiveIntensity: 0, roughness: 0.35, flatShading: true }),
-  glassDark: new THREE.MeshStandardMaterial({ color: '#2a3343', emissive: '#ffb45e', emissiveIntensity: 0, roughness: 0.35, flatShading: true }),
+  solid: texturize(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.82, metalness: 0, envMapIntensity: 0.7 })),
+  glassLit: new THREE.MeshStandardMaterial({ color: '#2a3343', emissive: '#ffb45e', emissiveIntensity: 0, roughness: 0.12, metalness: 0.2, flatShading: true, envMapIntensity: 1.4 }),
+  glassDark: new THREE.MeshStandardMaterial({ color: '#2a3343', emissive: '#ffb45e', emissiveIntensity: 0, roughness: 0.12, metalness: 0.2, flatShading: true, envMapIntensity: 1.4 }),
   lamp: new THREE.MeshStandardMaterial({ color: '#fff3d6', emissive: '#ffcf7a', emissiveIntensity: 0.1, flatShading: true }),
+  crystal: new THREE.MeshStandardMaterial({ color: '#8fe8ff', emissive: '#4fd2ff', emissiveIntensity: 1.2, roughness: 0.15, metalness: 0.1, flatShading: true, transparent: true, opacity: 0.88 }),
+  fire: new THREE.MeshBasicMaterial({ color: '#ffb347', transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }),
+  water: new THREE.MeshStandardMaterial({ color: '#4aa8c7', roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.85 }),
   glow: new THREE.SpriteMaterial({ map: GLOW, color: '#ffd89a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }),
   pool: new THREE.MeshBasicMaterial({ map: GLOW, color: '#ffc77a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4 }),
   beam: new THREE.MeshBasicMaterial({ color: '#fff1c4', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),
@@ -68,6 +73,7 @@ export function finish(parts, ghost) {
     if (!builder || builder.empty) continue;
     let m = mat;
     if (ghost === 'bad') m = GHOST.bad;
+    else if (ghost === 'sel') m = mat;
     else if (ghost) m = mat === MAT.solid ? GHOST.ok : GHOST.okGlass;
     const mesh = new THREE.Mesh(builder.build(), m);
     mesh.castShadow = !ghost && mat === MAT.solid;

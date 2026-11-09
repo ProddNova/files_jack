@@ -1,12 +1,13 @@
 // Touch and mouse handling.
-// One finger: uses the tool (after a short wait, so a second finger can still turn it into a camera gesture).
-// One finger on sea or sky, or with the "Vista" tool: rotates the camera.
-// Two fingers: pan, pinch to zoom, twist to rotate. Each starts only past a small threshold,
-// so a pinch doesn't also spin the view by accident.
+// Place/edit tools: a tap acts, a drag that starts on the draft or selection
+// moves it, any other drag turns the camera. Nothing gets built by a drag.
+// Stroke tools (walls, paths, brushes): one finger draws after a short wait,
+// so a second finger can still turn it into a camera gesture.
+// Two fingers: pan, pinch to zoom, twist to rotate, each past a small threshold.
 import { angleDiff } from './util.js';
 
 const HOLD_MS = 110;
-const MOVE_PX = 8;
+const MOVE_PX = 9;
 
 export function setupInput(canvas, h) {
   const pointers = new Map();
@@ -18,33 +19,22 @@ export function setupInput(canvas, h) {
 
   const tool = () => h.tool();
 
-  function beginTool() {
-    const t = tool();
-    mode = 'tool';
+  function beginStroke() {
+    mode = 'stroke';
     toolId = pend.id;
     toolT0 = performance.now();
-    t.start(pend.p);
+    tool().start(pend.p);
     pend = null;
-  }
-
-  function toolMove(e) {
-    const p = h.pick(e.clientX, e.clientY);
-    h.showCursor(p);
-    tool().move(p);
   }
 
   function gestureInfo() {
     const [a, b] = [...pointers.values()];
-    return {
-      dist: Math.hypot(a.x - b.x, a.y - b.y),
-      angle: Math.atan2(b.y - a.y, b.x - a.x),
-      mx: (a.x + b.x) / 2,
-      my: (a.y + b.y) / 2,
-    };
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y), angle: Math.atan2(b.y - a.y, b.x - a.x), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
   }
 
   canvas.addEventListener('pointerdown', (e) => {
     h.onTouch();
+    if (h.blocked()) return;
     try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     h.rig.stop();
@@ -52,17 +42,21 @@ export function setupInput(canvas, h) {
       const t = tool();
       if (e.pointerType === 'mouse' && e.button === 2) { mode = 'orbit'; return; }
       if (e.pointerType === 'mouse' && e.button === 1) { mode = 'pan'; return; }
-      if (!t) { mode = 'orbit'; return; }
       const p = h.pick(e.clientX, e.clientY);
-      if (!p || (p.y < -0.5 && !t.water)) { mode = 'orbit'; return; }
+      pend = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), ts: e.timeStamp, p };
+      if (t.mode === 'place' || t.mode === 'edit') {
+        mode = t.grab(p) ? 'grab' : 'tapOrOrbit';
+        return;
+      }
+      if (!p || (p.y < -0.5 && !t.water)) { mode = 'orbit'; pend = null; return; }
       mode = 'pending';
-      pend = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), p };
       h.showCursor(p);
     } else if (pointers.size === 2) {
-      if (mode === 'tool') {
+      if (mode === 'stroke') {
         if (performance.now() - toolT0 < 350) tool().cancel();
         else tool().end();
       }
+      if (mode === 'drag') tool().dragEnd();
       pend = null;
       h.hideCursor();
       mode = 'gesture';
@@ -73,19 +67,34 @@ export function setupInput(canvas, h) {
   canvas.addEventListener('pointermove', (e) => {
     const prev = pointers.get(e.pointerId);
     if (!prev) {
-      if (e.pointerType === 'mouse' && tool()) h.showCursor(h.pick(e.clientX, e.clientY));
+      if (e.pointerType === 'mouse' && tool() && !tool().mode) h.showCursor(h.pick(e.clientX, e.clientY));
       return;
     }
     const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
     prev.x = e.clientX;
     prev.y = e.clientY;
-    if (mode === 'pending' && pend && e.pointerId === pend.id) {
-      if (Math.hypot(e.clientX - pend.x, e.clientY - pend.y) > MOVE_PX) {
-        beginTool();
-        toolMove(e);
+    const moved = pend ? Math.hypot(e.clientX - pend.x, e.clientY - pend.y) : 0;
+    if (mode === 'tapOrOrbit') {
+      if (moved > MOVE_PX) { mode = 'orbit'; pend = null; }
+    } else if (mode === 'grab') {
+      if (moved > MOVE_PX * 0.6) {
+        mode = 'drag';
+        tool().dragStart(pend.p);
+        tool().drag(h.pick(e.clientX, e.clientY));
       }
-    } else if (mode === 'tool' && e.pointerId === toolId) {
-      toolMove(e);
+    } else if (mode === 'drag') {
+      tool().drag(h.pick(e.clientX, e.clientY));
+    } else if (mode === 'pending' && pend && e.pointerId === pend.id) {
+      if (moved > MOVE_PX) {
+        beginStroke();
+        const p = h.pick(e.clientX, e.clientY);
+        h.showCursor(p);
+        tool().move(p);
+      }
+    } else if (mode === 'stroke' && e.pointerId === toolId) {
+      const p = h.pick(e.clientX, e.clientY);
+      h.showCursor(p);
+      tool().move(p);
     } else if (mode === 'orbit') {
       h.rig.rotate(dx, dy);
     } else if (mode === 'pan') {
@@ -111,14 +120,22 @@ export function setupInput(canvas, h) {
   function pointerEnd(e, cancelled) {
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
-    if (mode === 'pending' && pend && e.pointerId === pend.id) {
+    if ((mode === 'tapOrOrbit' || mode === 'grab') && pend && e.pointerId === pend.id) {
+      // A tap is a press that did not move: slow taps count too (it only opens a draft)
+      if (!cancelled) tool().tap(pend.p);
+      mode = 'idle';
+      pend = null;
+    } else if (mode === 'drag') {
+      tool().dragEnd();
+      mode = 'idle';
+    } else if (mode === 'pending' && pend && e.pointerId === pend.id) {
       const p = pend.p;
-      beginTool();
+      beginStroke();
       if (cancelled) tool().cancel();
       else tool().end(p);
       mode = 'idle';
       h.hideCursor();
-    } else if (mode === 'tool' && e.pointerId === toolId) {
+    } else if (mode === 'stroke' && e.pointerId === toolId) {
       if (cancelled) tool().cancel();
       else tool().end(h.pick(e.clientX, e.clientY));
       toolId = null;
@@ -132,7 +149,7 @@ export function setupInput(canvas, h) {
       h.rig.release();
       mode = pointers.size ? 'blocked' : 'idle';
     }
-    if (pointers.size === 0) mode = 'idle';
+    if (pointers.size === 0) { mode = 'idle'; pend = null; }
   }
 
   canvas.addEventListener('pointerup', (e) => pointerEnd(e, false));
@@ -142,6 +159,7 @@ export function setupInput(canvas, h) {
   });
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
+    if (h.blocked()) return;
     h.rig.zoom(Math.exp(-e.deltaY * 0.0012));
   }, { passive: false });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -150,16 +168,19 @@ export function setupInput(canvas, h) {
 
   return {
     update(dt) {
-      if (mode === 'pending' && pend && performance.now() - pend.t > HOLD_MS) beginTool();
-      if (mode === 'tool' && tool() && tool().update) tool().update(dt);
-    },
-    get toolActive() {
-      return mode === 'tool' || mode === 'pending';
+      if (mode === 'pending' && pend && performance.now() - pend.t > HOLD_MS) beginStroke();
+      if (mode === 'stroke' && tool() && tool().update) tool().update(dt);
     },
     cancel() {
-      if (mode === 'tool' && tool()) tool().cancel();
+      if (mode === 'stroke' && tool()) tool().cancel();
+      if (mode === 'drag' && tool()) tool().dragEnd();
       pend = null;
       mode = pointers.size ? 'blocked' : 'idle';
+    },
+    reset() {
+      pointers.clear();
+      pend = null;
+      mode = 'idle';
     },
   };
 }

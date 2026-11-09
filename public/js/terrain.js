@@ -1,5 +1,6 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { fbm, noise2, smoothstep, clamp, lerp, col } from './util.js';
+import { terrainize } from './shaders.js';
 
 export const SIZE = 72;
 export const SEG = 180;
@@ -13,16 +14,40 @@ export const MAX_H = 9;
 const baseH = new Float32Array(N * N);
 const heights = new Float32Array(N * N);
 const baseColors = new Float32Array(N * N * 3);
+const baseSplat = new Float32Array(N * N * 3);
 export const pathW = new Float32Array(N * N);
+
+// The island's shape depends on a seed, so "Nuova isola" gives a different coast and hills.
+let islandSeed = 0;
+let off = { a: 0, b: 0, hx: -8, hz: -9, kx: 10, kz: -4, big: 4.6, small: 2.0 };
+export function getIslandSeed() {
+  return islandSeed;
+}
+function setSeedOffsets(seed) {
+  islandSeed = seed;
+  if (!seed) {
+    off = { a: 0, b: 0, hx: -8, hz: -9, kx: 10, kz: -4, big: 4.6, small: 2.0 };
+    return;
+  }
+  const r = (k) => (Math.sin(seed * 12.9898 + k * 78.233) * 43758.5453) % 1;
+  const f = (k) => Math.abs(r(k));
+  const a1 = f(3) * Math.PI * 2, a2 = a1 + 2 + f(4) * 2;
+  off = {
+    a: f(1) * 100, b: f(2) * 100,
+    hx: Math.cos(a1) * (5 + f(5) * 6), hz: Math.sin(a1) * (5 + f(5) * 6),
+    kx: Math.cos(a2) * (6 + f(6) * 7), kz: Math.sin(a2) * (6 + f(6) * 7),
+    big: 3 + f(7) * 3.5, small: 1 + f(8) * 2.5,
+  };
+}
 
 function shapeHeight(x, z) {
   const ang = Math.atan2(z, x);
-  const coast = 1 + 0.16 * (fbm(Math.cos(ang) * 1.7 + 4, Math.sin(ang) * 1.7 + 9, 3) - 0.5) * 2;
+  const coast = 1 + 0.16 * (fbm(Math.cos(ang) * 1.7 + 4 + off.a, Math.sin(ang) * 1.7 + 9 + off.b, 3) - 0.5) * 2;
   const r = Math.sqrt(x * x + z * z) / (ISLAND_R * coast);
   const land = smoothstep(1.02, 0.72, r);
-  const hills = (fbm(x * 0.055 + 11, z * 0.055 - 3, 4) - 0.45) * 2.6;
-  const bigHill = 4.6 * Math.exp(-((x + 8) ** 2 + (z + 9) ** 2) / 70);
-  const knoll = 2.0 * Math.exp(-((x - 10) ** 2 + (z + 4) ** 2) / 40);
+  const hills = (fbm(x * 0.055 + 11 + off.a, z * 0.055 - 3 + off.b, 4) - 0.45) * 2.6;
+  const bigHill = off.big * Math.exp(-((x - off.hx) ** 2 + (z - off.hz) ** 2) / 70);
+  const knoll = off.small * Math.exp(-((x - off.kx) ** 2 + (z - off.kz) ** 2) / 40);
   const top = 0.9 + Math.max(hills, -0.4) + bigHill + knoll;
   return lerp(MIN_H, top, land);
 }
@@ -37,14 +62,13 @@ const C = {
   maquis: col('#5f8540'),
   rock: col('#a59d8e'),
   rockDark: col('#8a8276'),
-  path1: col('#c9a07a'),
-  path2: col('#b5876a'),
+  path: col('#c8ab8a'),
 };
 
 const tmp = new THREE.Color();
-let geometry, posAttr, norAttr, colorAttr;
+let geometry, posAttr, norAttr, colorAttr, splatAttr;
 export let heightTexture = null;
-let heightBytes = null;
+let heightHalf = null;
 
 function idx(ix, iz) {
   return clamp(iz, 0, SEG) * N + clamp(ix, 0, SEG);
@@ -66,6 +90,11 @@ function computeBaseColor(i, x, z, h, slope) {
   }
   const rockMix = smoothstep(0.55, 1.0, slope);
   if (rockMix > 0) tmp.lerp(noise2(x * 0.9, z * 0.9) > 0.5 ? C.rock : C.rockDark, rockMix);
+  // Texture weights: grass, sand, rock
+  const sandW = h < 0.45 ? 1 : smoothstep(0.8, 0.45, h);
+  baseSplat[i * 3] = (1 - sandW) * (1 - rockMix);
+  baseSplat[i * 3 + 1] = sandW * (1 - rockMix);
+  baseSplat[i * 3 + 2] = rockMix;
   baseColors[i * 3] = tmp.r;
   baseColors[i * 3 + 1] = tmp.g;
   baseColors[i * 3 + 2] = tmp.b;
@@ -89,7 +118,7 @@ function refreshRegion(x0, z0, x1, z1) {
       nor[i * 3 + 2] = dz / len;
       const slope = Math.hypot(dx, dz) / (2 * STEP);
       computeBaseColor(i, -HALF + ix * STEP, -HALF + iz * STEP, heights[i], slope);
-      heightBytes[i] = Math.round(clamp((heights[i] + 3) / 6, 0, 1) * 255);
+      heightHalf[i] = THREE.DataUtils.toHalfFloat(heights[i]);
     }
   }
   posAttr.needsUpdate = true;
@@ -98,18 +127,34 @@ function refreshRegion(x0, z0, x1, z1) {
   refreshColors(x0, z0, x1, z1);
 }
 
-export function createTerrain() {
+function generateHeights(seed) {
+  setSeedOffsets(seed);
+  for (let iz = 0; iz < N; iz++) {
+    for (let ix = 0; ix < N; ix++) {
+      const i = iz * N + ix;
+      const h = shapeHeight(-HALF + ix * STEP, -HALF + iz * STEP);
+      baseH[i] = h;
+      heights[i] = h;
+    }
+  }
+}
+
+// Builds a brand new island shape (clears paths too).
+export function newIsland(seed) {
+  generateHeights(seed);
+  pathW.fill(0);
+  refreshRegion(0, 0, SEG, SEG);
+}
+
+export function createTerrain(seed = 0) {
+  generateHeights(seed);
   const pos = new Float32Array(N * N * 3);
   for (let iz = 0; iz < N; iz++) {
     for (let ix = 0; ix < N; ix++) {
       const i = iz * N + ix;
-      const x = -HALF + ix * STEP, z = -HALF + iz * STEP;
-      const h = shapeHeight(x, z);
-      baseH[i] = h;
-      heights[i] = h;
-      pos[i * 3] = x;
-      pos[i * 3 + 1] = h;
-      pos[i * 3 + 2] = z;
+      pos[i * 3] = -HALF + ix * STEP;
+      pos[i * 3 + 1] = heights[i];
+      pos[i * 3 + 2] = -HALF + iz * STEP;
     }
   }
   const index = new Uint32Array(SEG * SEG * 6);
@@ -128,16 +173,19 @@ export function createTerrain() {
   geometry.setAttribute('position', posAttr);
   geometry.setAttribute('normal', norAttr);
   geometry.setAttribute('color', colorAttr);
+  splatAttr = new THREE.BufferAttribute(new Float32Array(N * N * 4), 4);
+  geometry.setAttribute('aSplat', splatAttr);
   geometry.setIndex(new THREE.BufferAttribute(index, 1));
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), HALF * 1.5);
 
-  heightBytes = new Uint8Array(N * N);
-  heightTexture = new THREE.DataTexture(heightBytes, N, N, THREE.RedFormat, THREE.UnsignedByteType);
+  heightHalf = new Uint16Array(N * N);
+  heightTexture = new THREE.DataTexture(heightHalf, N, N, THREE.RedFormat, THREE.HalfFloatType);
+  heightTexture.wrapS = heightTexture.wrapT = THREE.ClampToEdgeWrapping;
   heightTexture.magFilter = THREE.LinearFilter;
   heightTexture.minFilter = THREE.LinearFilter;
   refreshRegion(0, 0, SEG, SEG);
 
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+  const mat = terrainize(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, envMapIntensity: 0.5 }));
   const mesh = new THREE.Mesh(geometry, mat);
   mesh.receiveShadow = true;
   mesh.name = 'terrain';
@@ -147,20 +195,24 @@ export function createTerrain() {
 // World xz -> height texture uv: uv = xz * scale + offset
 export const HEIGHT_UV = { scale: 1 / (STEP * N), offset: (HALF / STEP + 0.5) / N };
 
-// Path color alternates per vertex, so the creuza looks like laid bricks.
+// Paths tint the ground and switch its texture to cobbles.
 function refreshColors(x0, z0, x1, z1) {
-  const arr = colorAttr.array;
+  const arr = colorAttr.array, sp = splatAttr.array;
   for (let iz = z0; iz <= z1; iz++) {
     for (let ix = x0; ix <= x1; ix++) {
       const i = iz * N + ix;
-      const w = smoothstep(0.05, 0.6, pathW[i]);
-      const pc = ((ix + iz) & 1) === 0 ? C.path1 : C.path2;
-      arr[i * 3] = lerp(baseColors[i * 3], pc.r, w);
-      arr[i * 3 + 1] = lerp(baseColors[i * 3 + 1], pc.g, w);
-      arr[i * 3 + 2] = lerp(baseColors[i * 3 + 2], pc.b, w);
+      const w = smoothstep(0.05, 0.7, pathW[i]);
+      arr[i * 3] = lerp(baseColors[i * 3], C.path.r, w);
+      arr[i * 3 + 1] = lerp(baseColors[i * 3 + 1], C.path.g, w);
+      arr[i * 3 + 2] = lerp(baseColors[i * 3 + 2], C.path.b, w);
+      sp[i * 4] = baseSplat[i * 3] * (1 - w);
+      sp[i * 4 + 1] = baseSplat[i * 3 + 1] * (1 - w);
+      sp[i * 4 + 2] = baseSplat[i * 3 + 2] * (1 - w);
+      sp[i * 4 + 3] = w;
     }
   }
   colorAttr.needsUpdate = true;
+  splatAttr.needsUpdate = true;
 }
 
 export function refreshAllColors() {

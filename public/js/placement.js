@@ -1,6 +1,6 @@
 // Footprints, collisions and snapping: keeps buildings from overlapping and
 // lines them up with neighbours, paths and walls.
-import { houseDims, houseRect, TOWER_RADIUS, PROP_RADIUS, wallHalf } from './builders.js';
+import { houseDims, houseRect, towerRadius, propRadius, wallHalf } from './builders.js';
 import { getHeight, pathAt } from './terrain.js';
 import { angleDiff, distToSegment2, round2 } from './util.js';
 
@@ -9,10 +9,11 @@ export function footprint(kind, data) {
     const r = houseRect(data);
     return { type: 'rect', x: r.x, z: r.z, hw: r.hw, hd: r.hd, ang: data.ang };
   }
-  if (kind === 'tower') return { type: 'circle', x: data.x, z: data.z, r: TOWER_RADIUS[data.style] ?? 1.3 };
-  if (kind === 'prop') return { type: 'circle', x: data.x, z: data.z, r: PROP_RADIUS[data.style] ?? 0.5 };
+  if (kind === 'tower') return { type: 'circle', x: data.x, z: data.z, r: towerRadius(data) };
+  if (kind === 'prop') return { type: 'circle', x: data.x, z: data.z, r: propRadius(data) };
   if (kind === 'wall') return { type: 'line', pts: data.pts, half: wallHalf(data.style) };
-  return { type: 'circle', x: data.x, z: data.z, r: kind === 'tree' ? 0.45 : 0.3 };
+  if (kind === 'bridge') return { type: 'line', pts: [data.a, data.b], half: (data.w ?? 1.6) / 2 };
+  return { type: 'circle', x: data.x, z: data.z, r: (kind === 'tree' ? 0.45 : 0.3) * (data.s ?? 1) };
 }
 
 function toLocal(r, x, z) {
@@ -88,6 +89,7 @@ const BLOCKERS = {
   tower: new Set(['house', 'tower', 'prop']),
   prop: new Set(['house', 'tower', 'wall', 'prop']),
   wall: new Set(),
+  bridge: new Set(),
 };
 
 function terrainOk(kind, data, fp) {
@@ -102,8 +104,8 @@ function terrainOk(kind, data, fp) {
     for (const [lx, lz] of [[-fp.hw, -fp.hd], [fp.hw, -fp.hd], [fp.hw, fp.hd], [-fp.hw, fp.hd]]) {
       if (getHeight(fp.x + lx * c + lz * s, fp.z - lx * s + lz * c) < -0.5) return false;
     }
-    // Houses keep the creuze free: they never sit on a path
-    for (const [lx, lz] of [[0, 0], [fp.hw * 0.6, 0], [-fp.hw * 0.6, 0], [0, fp.hd * 0.6], [0, -fp.hd * 0.6]]) {
+    // Houses keep the creuze free: they never sit on a path (a city gate is meant to)
+    if (data.style !== 'porta') for (const [lx, lz] of [[0, 0], [fp.hw * 0.6, 0], [-fp.hw * 0.6, 0], [0, fp.hd * 0.6], [0, -fp.hd * 0.6]]) {
       if (pathAt(fp.x + lx * c + lz * s, fp.z - lx * s + lz * c) > 0.5) return false;
     }
     return true;
@@ -170,7 +172,7 @@ const norm = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // Lines a house up with what is around it. userAngle: the player chose the direction by dragging.
 export function snapHouse(data, objects, userAngle) {
   const d = { ...data };
-  const dims = houseDims(d.style || 'casa', d.w, d.seed);
+  const dims = houseDims(d);
   let near = null, nearD = Infinity;
   for (const o of objects) {
     if (o.kind !== 'house') continue;
@@ -183,7 +185,7 @@ export function snapHouse(data, objects, userAngle) {
     const target = norm(H.ang + k * (Math.PI / 2));
     if (!userAngle || Math.abs(angleDiff(target, d.ang)) < 0.35) {
       d.ang = round2(target);
-      const Hd = houseDims(H.style || 'casa', H.w, H.seed);
+      const Hd = houseDims(H);
       const swap = Math.abs(k) % 2 === 1;
       const mhw = (swap ? dims.d : dims.w) / 2, mhd = (swap ? dims.w : dims.d) / 2;
       const hw = Hd.w / 2, hd = Hd.d / 2;

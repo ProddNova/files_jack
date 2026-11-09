@@ -1,20 +1,26 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { rng, round2 } from './util.js';
+import { rng, round2, newSeed } from './util.js';
 import {
-  createTerrain, raycastTerrain, getHeight, restorePath, encodePath, decodePath,
-  snapshotPath, setPath, encodeHeights, decodeHeights, restoreHeights, snapshotHeights,
-  setHeights, resetHeights,
+  createTerrain, raycastTerrain, getHeight, restorePath, encodePath, decodePath, heightTexture, HEIGHT_UV,
+  snapshotPath, setPath, encodeHeights, decodeHeights, restoreHeights, snapshotHeights, setHeights, resetHeights,
+  newIsland, getIslandSeed, ISLAND_R,
 } from './terrain.js';
 import { BUILDERS, disposeGroup, FLOWER_NAMES, isNature } from './builders.js';
 import { footprint, pointIn } from './placement.js';
 import { createWorld } from './world.js';
+import { createTextureArray } from './textures.js';
+import { TEX } from './shaders.js';
+import { createPost } from './post.js';
 import { createDecor } from './decor.js';
+import { createLife } from './life.js';
 import { CameraRig } from './controls.js';
 import { setupInput } from './input.js';
-import { createTools, TOOL_DEFS } from './tools.js';
+import { createTools, TOOL_DEFS, translateData } from './tools.js';
+import { createEditor } from './editor.js';
+import { createWalk } from './walk.js';
 import * as audio from './audio.js';
 
-const SAVE_KEY = 'borgo-di-mare-v1';
+const SLOT_KEYS = ['borgo-di-mare-v1', 'borgo-slot-2', 'borgo-slot-3'];
 const PREFS_KEY = 'borgo-prefs';
 const $ = (s) => document.querySelector(s);
 const canvas = $('#scene');
@@ -22,8 +28,14 @@ const loading = $('#loading');
 
 const storage = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch { /* storage full or blocked */ } },
+  set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } },
 };
+
+const prefs = (() => {
+  try { return JSON.parse(storage.get(PREFS_KEY)) || {}; } catch { return {}; }
+})();
+prefs.variants = prefs.variants || {};
+const savePrefs = () => storage.set(PREFS_KEY, JSON.stringify(prefs));
 
 // ---------- Renderer ----------
 
@@ -35,8 +47,7 @@ try {
   throw err;
 }
 const lowPower = (navigator.hardwareConcurrency || 4) <= 2;
-let pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-renderer.setPixelRatio(pixelRatio);
+if (!prefs.quality) prefs.quality = lowPower ? 'bassa' : 'alta';
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -45,19 +56,44 @@ renderer.toneMapping = THREE.NeutralToneMapping;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.3, 800);
 const rig = new CameraRig(camera);
-scene.add(createTerrain());
-const world = createWorld(scene, { lowPower });
+TEX.uTex.value = createTextureArray(renderer, lowPower ? 256 : 512);
+scene.add(createTerrain(0));
+TEX.uHeight.value = heightTexture;
+TEX.uHUV.value.set(HEIGHT_UV.scale, HEIGHT_UV.offset);
+const world = createWorld(scene, { lowPower, renderer });
 const decor = createDecor(scene, { lowPower });
+const life = createLife(scene);
+const post = createPost(renderer, scene, camera);
+let usePost = true;
+
+const QUALITY = {
+  alta: { dpr: 2, post: true, shadow: 2048, label: 'Alta' },
+  media: { dpr: 1.5, post: true, shadow: 2048, label: 'Media' },
+  bassa: { dpr: 1, post: false, shadow: 1024, label: 'Bassa' },
+};
+function applyQuality() {
+  const q = QUALITY[prefs.quality] || QUALITY.alta;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.dpr));
+  usePost = q.post;
+  world.setShadowSize(q.shadow);
+  resize();
+}
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  post.setSize(w, h);
 }
 window.addEventListener('resize', resize);
 window.visualViewport?.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 250));
+
+function draw() {
+  if (usePost) post.render();
+  else renderer.render(scene, camera);
+}
 
 // ---------- UI helpers ----------
 
@@ -73,11 +109,11 @@ function toast(text, ms = 2600) {
 // ---------- Objects ----------
 
 const objects = [];
-const undoStack = [];
+let undoStack = [];
 const pops = [];
-const RISE = new Set(['house', 'tower', 'wall']);
+const RISE = new Set(['house', 'tower', 'wall', 'bridge']);
 
-// Walls open a gap where they meet a house.
+// Walls open a gap where they meet a house (a city gate fills that gap).
 const env = {
   blockedAt: (x, z) => objects.some((o) => o.kind === 'house' && pointIn(o.fp, x, z, 0.15)),
 };
@@ -85,6 +121,9 @@ const env = {
 function build(obj) {
   const built = BUILDERS[obj.kind](obj.data, { env });
   if (!built) return false;
+  obj.solids = null;
+  obj.animate = null;
+  obj.surfaceAt = null;
   Object.assign(obj, built);
   obj.fp = footprint(obj.kind, obj.data);
   return true;
@@ -114,9 +153,11 @@ function remove(obj) {
   objects.splice(i, 1);
   scene.remove(obj.group);
   disposeGroup(obj.group);
+  if (obj === selected) deselect();
 }
 
 function rebuild(obj) {
+  if (!objects.includes(obj)) return;
   scene.remove(obj.group);
   disposeGroup(obj.group);
   build(obj);
@@ -126,6 +167,8 @@ function rebuild(obj) {
 function refreshAll() {
   for (const o of objects) if (o.kind === 'wall') rebuild(o);
   decor.refresh(objects);
+  life.refresh(objects);
+  updateSelection();
 }
 
 function inBox(o, box, m = 1) {
@@ -144,14 +187,14 @@ function liveReground(p, R) {
   }
 }
 
-const newAction = () => ({ added: [], removed: [], pathChanges: null, pathSnapshot: null, heightChanges: null, heightSnapshot: null });
+const newAction = () => ({ added: [], removed: [], edits: [], pathChanges: null, pathSnapshot: null, heightChanges: null, heightSnapshot: null });
 
 function commit(a) {
-  const empty = !a.added.length && !a.removed.length && !(a.pathChanges && a.pathChanges.size)
+  const empty = !a.added.length && !a.removed.length && !a.edits.length && !(a.pathChanges && a.pathChanges.size)
     && !a.pathSnapshot && !(a.heightChanges && a.heightChanges.size) && !a.heightSnapshot;
   if (empty) return;
   undoStack.push(a);
-  if (undoStack.length > 80) undoStack.shift();
+  if (undoStack.length > 100) undoStack.shift();
   refreshAll();
   scheduleSave();
 }
@@ -163,6 +206,10 @@ function undo() {
     return;
   }
   for (const o of a.added) remove(o);
+  for (const e of a.edits.slice().reverse()) {
+    e.obj.data = e.before;
+    rebuild(e.obj);
+  }
   if (a.heightChanges) afterTerrain(restoreHeights(a.heightChanges));
   if (a.heightSnapshot) setHeights(a.heightSnapshot);
   if (a.pathChanges) restorePath(a.pathChanges);
@@ -170,8 +217,126 @@ function undo() {
   for (const o of a.removed) attach(o);
   if (a.heightSnapshot) for (const o of objects) rebuild(o);
   refreshAll();
+  if (selected) editor.refresh();
   audio.tick();
   scheduleSave();
+}
+
+// ---------- Selection and editing ----------
+
+let selected = null;
+const selMat = new THREE.MeshBasicMaterial({ color: '#ffd166', transparent: true, opacity: 0.3, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+const selLineMat = new THREE.LineBasicMaterial({ color: '#ffd166', transparent: true, depthTest: false });
+const selGroup = new THREE.Group();
+scene.add(selGroup);
+
+function clearSelGroup() {
+  for (const c of [...selGroup.children]) {
+    selGroup.remove(c);
+    c.geometry.dispose();
+  }
+}
+
+// A soft yellow shape on the ground under the selected object.
+function updateSelection() {
+  clearSelGroup();
+  if (!selected) return;
+  const fp = selected.fp;
+  const pts = [];
+  if (fp.type === 'rect') {
+    const c = Math.cos(fp.ang), s = Math.sin(fp.ang);
+    for (const [lx, lz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      pts.push(new THREE.Vector3(fp.x + lx * fp.hw * c + lz * fp.hd * s, 0, fp.z - lx * fp.hw * s + lz * fp.hd * c));
+    }
+  } else if (fp.type === 'circle') {
+    for (let i = 0; i < 32; i++) {
+      const a = (i / 32) * Math.PI * 2;
+      pts.push(new THREE.Vector3(fp.x + Math.cos(a) * fp.r, 0, fp.z + Math.sin(a) * fp.r));
+    }
+  } else {
+    for (const [x, z] of fp.pts) pts.push(new THREE.Vector3(x, 0, z));
+  }
+  for (const p of pts) p.y = Math.max(getHeight(p.x, p.z), 0) + 0.08;
+  const closed = fp.type !== 'line';
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const line = closed ? new THREE.LineLoop(geo, selLineMat) : new THREE.Line(geo, selLineMat);
+  line.renderOrder = 31;
+  selGroup.add(line);
+  if (closed) {
+    const shape = new THREE.Shape(pts.map((p) => new THREE.Vector2(p.x, -p.z)));
+    const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2), selMat);
+    mesh.position.y = Math.max(...pts.map((p) => p.y));
+    mesh.renderOrder = 30;
+    selGroup.add(mesh);
+  } else {
+    for (const p of pts) {
+      const dot = new THREE.Mesh(new THREE.CircleGeometry(fp.half + 0.25, 12).rotateX(-Math.PI / 2), selMat);
+      dot.position.copy(p);
+      dot.renderOrder = 30;
+      selGroup.add(dot);
+    }
+  }
+}
+
+function select(obj) {
+  const handler = currentHandler();
+  if (handler && handler.draft) handler.cancel();
+  selected = obj;
+  editor.openEdit(obj);
+  updateSelection();
+  audio.tick();
+}
+
+function deselect() {
+  if (!selected && editor.mode !== 'edit') return;
+  selected = null;
+  if (editor.mode === 'edit') editor.close();
+  clearSelGroup();
+}
+
+function liveEdit(obj, data) {
+  obj.data = data;
+  rebuild(obj);
+  if (obj === selected) updateSelection();
+}
+
+function commitEdit(obj, before) {
+  if (JSON.stringify(before) === JSON.stringify(obj.data)) return;
+  const a = newAction();
+  a.edits.push({ obj, before, after: obj.data });
+  commit(a);
+}
+
+function duplicate(obj) {
+  const off = Math.max(1.2, (obj.bounds?.r || 1) * 1.1);
+  const data = translateData(obj.data, off, off * 0.4);
+  const a = newAction();
+  const copy = add(obj.kind, data, { animate: true });
+  if (!copy) return;
+  a.added.push(copy);
+  commit(a);
+  select(copy);
+  toast('⧉ Copia creata: trascinala dove vuoi', 1600);
+}
+
+function deleteObj(obj) {
+  const a = newAction();
+  remove(obj);
+  a.removed.push(obj);
+  commit(a);
+  deselect();
+  audio.tick();
+}
+
+// The object under a point (buildings win over plants).
+function objectAt(p, kind) {
+  let best = null, bd = Infinity;
+  for (const o of objects) {
+    if (kind && o.kind !== kind) continue;
+    const d = o.hitDist(p.x, p.z) + (isNature(o.kind) ? 0.25 : 0);
+    if (d < 0.3 && d < bd) { bd = d; best = o; }
+  }
+  return best;
 }
 
 // ---------- Ghost preview ----------
@@ -208,18 +373,22 @@ cursor.renderOrder = 20;
 cursor.visible = false;
 scene.add(cursor);
 
-// ---------- Save ----------
+// ---------- Save, load, islands ----------
 
 let saveTimer = 0;
-function save() {
+function serialize() {
   const order = [...objects.filter((o) => o.kind !== 'wall'), ...objects.filter((o) => o.kind === 'wall')];
-  storage.set(SAVE_KEY, JSON.stringify({
-    v: 2,
+  return {
+    v: 3,
+    seed: getIslandSeed(),
     time: world.timeIndex,
     objects: order.map((o) => ({ kind: o.kind, data: o.data })),
     path: encodePath(),
     heights: encodeHeights(),
-  }));
+  };
+}
+function save() {
+  if (!storage.set(SLOT_KEYS[prefs.slot || 0], JSON.stringify(serialize()))) toast('Memoria piena: esporta l\'isola dal menu ⚙️');
 }
 function scheduleSave() {
   clearTimeout(saveTimer);
@@ -230,78 +399,103 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') save();
 });
 
-function load() {
-  const raw = storage.get(SAVE_KEY);
-  if (!raw) return false;
-  try {
-    const p = JSON.parse(raw);
-    if (!p || (p.v !== 1 && p.v !== 2)) return false;
-    if (p.heights) decodeHeights(p.heights);
-    if (p.path) decodePath(p.path);
-    const list = (p.objects || []).filter((o) => BUILDERS[o.kind]);
-    for (const o of list) if (o.kind !== 'wall') add(o.kind, o.data);
-    for (const o of list) if (o.kind === 'wall') add(o.kind, o.data);
-    if (typeof p.time === 'number') world.setTime(p.time);
-    return true;
-  } catch {
-    return false;
-  }
+function clearWorld() {
+  deselect();
+  for (const o of objects.slice()) remove(o);
+  undoStack = [];
 }
 
-function starterIsland() {
-  const r = rng(2025);
-  const groves = [
-    { cx: -8, cz: -9, rad: 7, n: 34, types: ['pine', 'pine', 'cypress', 'olive'] },
-    { cx: 10, cz: -4, rad: 4, n: 12, types: ['olive', 'olive', 'lemon'] },
-    { cx: -14, cz: 8, rad: 4, n: 9, types: ['olive', 'cypress', 'palm'] },
-    { cx: 12, cz: 12, rad: 3, n: 5, types: ['palm'] },
-  ];
-  for (const g of groves) {
-    for (let i = 0; i < g.n; i++) {
-      const a = r() * Math.PI * 2, d = Math.sqrt(r()) * g.rad;
-      const x = round2(g.cx + Math.cos(a) * d), z = round2(g.cz + Math.sin(a) * d);
-      if (getHeight(x, z) < 0.6) continue;
-      if (objects.some((o) => Math.hypot(o.data.x - x, o.data.z - z) < 1.1)) continue;
-      add('tree', { x, z, seed: r.int(1, 1e9), type: r.pick(g.types) });
-    }
+function applySave(p) {
+  clearWorld();
+  newIsland(p.seed || 0);
+  if (p.heights) decodeHeights(p.heights);
+  if (p.path) decodePath(p.path);
+  const list = (p.objects || []).filter((o) => BUILDERS[o.kind]);
+  for (const o of list) if (o.kind !== 'wall') add(o.kind, o.data);
+  for (const o of list) if (o.kind === 'wall') add(o.kind, o.data);
+  if (typeof p.time === 'number') world.setTime(p.time);
+  refreshAll();
+}
+
+function loadSlot(i) {
+  const raw = storage.get(SLOT_KEYS[i]);
+  if (raw) {
+    try {
+      const p = JSON.parse(raw);
+      if (p && p.v >= 1 && p.v <= 3) { applySave(p); return true; }
+    } catch { /* fall through to a fresh island */ }
   }
-  for (let i = 0; i < 12; i++) {
-    const a = r() * Math.PI * 2, d = r.range(6, 16);
+  freshIsland(i === 0 ? 0 : newSeed());
+  return false;
+}
+
+function starterNature(seed) {
+  const r = rng((seed + 2025) >>> 0);
+  let trees = 0;
+  for (let i = 0; i < 500 && trees < 55; i++) {
+    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * (ISLAND_R - 3);
+    const x = round2(Math.cos(a) * d), z = round2(Math.sin(a) * d);
+    const h = getHeight(x, z);
+    if (h < 1.3 || r() > 0.55) continue;
+    if (objects.some((o) => Math.hypot(o.data.x - x, o.data.z - z) < 1.2)) continue;
+    const type = h > 3.2 ? r.pick(['pine', 'cypress', 'pine']) : h > 2 ? r.pick(['olive', 'cypress', 'pine', 'bush']) : r.pick(['olive', 'olive', 'lemon', 'palm', 'bush']);
+    add('tree', { x, z, seed: r.int(1, 1e9), type });
+    trees++;
+  }
+  for (let i = 0; i < 14; i++) {
+    const a = r() * Math.PI * 2, d = r.range(5, 18);
     const x = round2(Math.cos(a) * d), z = round2(Math.sin(a) * d);
     if (getHeight(x, z) < 0.6) continue;
     add('flower', { x, z, seed: r.int(1, 1e9), variant: r.int(0, FLOWER_NAMES.length - 1) });
   }
-  // A lighthouse on the far shore
-  for (let rad = 16; rad < 30; rad += 0.5) {
-    const x = Math.cos(4.0) * rad, z = Math.sin(4.0) * rad;
+  for (let i = 0; i < 6; i++) {
+    const a = r() * Math.PI * 2;
+    for (let rad = ISLAND_R + 6; rad > 8; rad -= 0.5) {
+      const x = Math.cos(a) * rad, z = Math.sin(a) * rad;
+      if (getHeight(x, z) > 0 && getHeight(x, z) < 0.5) {
+        add('tree', { x: round2(x), z: round2(z), seed: r.int(1, 1e9), type: 'rock', s: r.range(0.8, 1.6) });
+        break;
+      }
+    }
+  }
+  const fa = r() * Math.PI * 2;
+  for (let rad = 16; rad < 32; rad += 0.5) {
+    const x = Math.cos(fa) * rad, z = Math.sin(fa) * rad;
     if (getHeight(x, z) < 0.5) {
-      const bx = Math.cos(4.0) * (rad - 2), bz = Math.sin(4.0) * (rad - 2);
-      add('tower', { x: round2(bx), z: round2(bz), seed: 4242, style: 'faro', ang: 0 });
+      add('tower', { x: round2(Math.cos(fa) * (rad - 2)), z: round2(Math.sin(fa) * (rad - 2)), seed: 4242, style: 'faro', ang: 0 });
       break;
     }
   }
 }
 
+function freshIsland(seed) {
+  clearWorld();
+  newIsland(seed);
+  starterNature(seed);
+  refreshAll();
+}
+
 // ---------- Tools and input ----------
 
-const prefs = (() => {
-  try { return JSON.parse(storage.get(PREFS_KEY)) || {}; } catch { return {}; }
-})();
-const variants = prefs.variants || {};
-const variant = (tool) => {
-  const def = TOOL_DEFS.find((t) => t.id === tool);
-  const v = variants[tool];
-  return def.variants && def.variants.some(([id]) => id === v) ? v : def.variants?.[0][0];
+const variant = (toolId) => {
+  const def = TOOL_DEFS.find((t) => t.id === toolId);
+  if (!def.variants) return { id: toolId, use: toolId };
+  return def.variants.find((v) => v.id === prefs.variants[toolId]) || def.variants[0];
 };
-const savePrefs = () => storage.set(PREFS_KEY, JSON.stringify({ variants, helpSeen: prefs.helpSeen }));
+
+let toolName = TOOL_DEFS.some((t) => t.id === prefs.tool) ? prefs.tool : 'borgo';
+const editor = createEditor({ liveEdit, commitEdit, duplicate, deleteObj, deselect: () => deselect() }, $('#panel'));
 
 const G = {
-  objects, rig, audio, toast, variant, env,
+  objects, rig, audio, toast, env, prefs,
   add, remove, attach, newAction, commit, refreshAll, afterTerrain, liveReground,
-  ghost: setGhost,
+  setGhost, variant, objectAt, select, deselect, liveEdit, commitEdit,
+  get selected() { return selected; },
+  openDraft: (h) => { deselect(); editor.openDraft(h); },
+  closePanel: () => editor.close(),
 };
-const tools = createTools(G);
-let toolName = 'house';
+const handlerFor = createTools(G);
+const currentHandler = () => handlerFor(toolName);
 
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
@@ -312,16 +506,21 @@ function pick(x, y) {
   return raycastTerrain(raycaster.ray);
 }
 
+const helpEl = $('#help');
+const menuEl = $('#menu');
+const walk = createWalk({ camera, canvas, objects, audio, onExit: () => { input.reset(); toast('Bentornato in vista dall\'alto', 1400); } });
+
 const input = setupInput(canvas, {
   rig,
   pick,
-  tool: () => tools[toolName],
+  tool: currentHandler,
   onTouch: () => audio.unlock(),
+  blocked: () => walk.active || helpEl.classList.contains('show') || menuEl.classList.contains('show'),
   showCursor(p) {
-    const t = tools[toolName];
-    if (!p || !t) { cursor.visible = false; return; }
+    const t = currentHandler();
+    if (!p || !t || t.mode) { cursor.visible = false; return; }
     cursor.visible = true;
-    cursor.position.set(p.x, Math.max(p.y, toolName === 'prop' || toolName === 'erase' ? 0 : p.y) + 0.06, p.z);
+    cursor.position.set(p.x, Math.max(p.y, 0) + 0.06, p.z);
     cursor.scale.setScalar(t.radius);
   },
   hideCursor() { cursor.visible = false; },
@@ -338,13 +537,15 @@ function renderChips() {
   chips.innerHTML = '';
   chips.classList.toggle('empty', !def.variants);
   if (!def.variants) return;
-  const current = variant(toolName);
-  for (const [id, label] of def.variants) {
+  const current = variant(toolName).id;
+  for (const v of def.variants) {
     const b = document.createElement('button');
-    b.className = 'chip' + (id === current ? ' active' : '');
-    b.textContent = label;
+    b.className = 'chip' + (v.id === current ? ' active' : '');
+    b.textContent = v.label;
     b.addEventListener('click', () => {
-      variants[toolName] = id;
+      const h = currentHandler();
+      if (h && h.draft) h.cancel();
+      prefs.variants[toolName] = v.id;
       savePrefs();
       renderChips();
       audio.tick();
@@ -355,13 +556,18 @@ function renderChips() {
 }
 
 function setTool(name) {
+  const prev = currentHandler();
+  if (prev && prev.draft) prev.cancel();
   input.cancel();
   setGhost(null);
+  deselect();
   toolName = name;
+  prefs.tool = name;
+  savePrefs();
   for (const b of toolbar.querySelectorAll('button')) b.classList.toggle('active', b.dataset.tool === name);
   cursor.visible = false;
   renderChips();
-  toast(TOOL_DEFS.find((t) => t.id === name).hint);
+  toast(TOOL_DEFS.find((t) => t.id === name).hint, 2400);
 }
 
 for (const t of TOOL_DEFS) {
@@ -387,32 +593,30 @@ timeBtn.addEventListener('click', () => {
   scheduleSave();
 });
 
-const soundBtn = $('#btn-sound');
-const showSound = () => { soundBtn.textContent = audio.isMuted() ? '🔇' : '🔊'; };
-soundBtn.addEventListener('click', () => {
-  audio.unlock();
-  audio.setMuted(!audio.isMuted());
-  showSound();
-});
-
-$('#btn-clear').addEventListener('click', () => {
-  if (!window.confirm("Vuoi svuotare l'isola? Potrai comunque annullare.")) return;
-  const a = newAction();
-  a.pathSnapshot = snapshotPath();
-  a.heightSnapshot = snapshotHeights();
-  for (const o of objects.slice()) {
-    remove(o);
-    a.removed.push(o);
-  }
-  setPath(new Float32Array(a.pathSnapshot.length));
-  resetHeights();
-  commit(a);
-  toast('Isola pulita. ↶ per tornare indietro');
-});
-
-$('#btn-photo').addEventListener('click', () => {
+$('#btn-walk').addEventListener('click', () => {
+  const h = currentHandler();
+  if (h && h.draft) h.cancel();
+  deselect();
+  setGhost(null);
   cursor.visible = false;
-  renderer.render(scene, camera);
+  walk.enter(rig.target.x, rig.target.z, rig.theta);
+  toast('🚶 Joystick per camminare (fino in fondo = corri) · trascina per guardarti intorno', 3200);
+});
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function sharePhoto() {
+  cursor.visible = false;
+  draw();
   canvas.toBlob(async (blob) => {
     if (!blob) return;
     const file = new File([blob], 'borgo-di-mare.png', { type: 'image/png' });
@@ -424,52 +628,198 @@ $('#btn-photo').addEventListener('click', () => {
     } catch (err) {
       if (err && err.name === 'AbortError') return;
     }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'borgo-di-mare.png';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    downloadBlob(blob, 'borgo-di-mare.png');
   }, 'image/png');
-});
+}
+$('#btn-photo').addEventListener('click', sharePhoto);
 
-const help = $('#help');
-const openHelp = () => help.classList.add('show');
+// ---------- Help ----------
+
+const openHelp = () => helpEl.classList.add('show');
 $('#btn-help').addEventListener('click', openHelp);
 $('#help-close').addEventListener('click', () => {
-  help.classList.remove('show');
-  prefs.helpSeen = true;
+  helpEl.classList.remove('show');
+  prefs.helpSeen = 3;
   savePrefs();
+});
+
+// ---------- Menu ----------
+
+function setAuto(on) {
+  prefs.autoCycle = on;
+  world.autoCycle = on;
+  savePrefs();
+}
+function setWeather(id) {
+  prefs.weather = id;
+  const w = world.setWeather(id);
+  audio.unlock();
+  audio.setRain(w.id === 'pioggia');
+  savePrefs();
+}
+function setTilt(on) {
+  prefs.tilt = on;
+  post.setTilt(on);
+  savePrefs();
+}
+
+function renderMenu() {
+  const body = $('#menu-body');
+  body.innerHTML = '';
+  const section = (title) => {
+    const s = document.createElement('section');
+    const h = document.createElement('h3');
+    h.textContent = title;
+    s.appendChild(h);
+    body.appendChild(s);
+    return s;
+  };
+  const row = (parent, label, buttons) => {
+    const r = document.createElement('div');
+    r.className = 'mrow';
+    if (label) {
+      const l = document.createElement('span');
+      l.textContent = label;
+      r.appendChild(l);
+    }
+    const box = document.createElement('div');
+    box.className = 'mbtns';
+    for (const [text, active, fn] of buttons) {
+      const b = document.createElement('button');
+      b.className = 'mbtn' + (active ? ' active' : '');
+      b.textContent = text;
+      b.addEventListener('click', () => { fn(); if (menuEl.classList.contains('show')) renderMenu(); });
+      box.appendChild(b);
+    }
+    r.appendChild(box);
+    parent.appendChild(r);
+  };
+
+  const isl = section('🏝️ Isole');
+  row(isl, 'Salvataggio', [0, 1, 2].map((i) => [`Isola ${i + 1}`, (prefs.slot || 0) === i, () => {
+    if ((prefs.slot || 0) === i) return;
+    save();
+    prefs.slot = i;
+    savePrefs();
+    loadSlot(i);
+    toast(`🏝️ Isola ${i + 1}`, 1200);
+  }]));
+  row(isl, null, [
+    ['🌱 Nuova isola', false, () => {
+      if (!window.confirm('Creare una nuova isola in questo salvataggio? Quella attuale verrà sostituita.')) return;
+      freshIsland(newSeed());
+      save();
+      closeMenu();
+      toast('🌱 Ecco una nuova isola tutta da costruire');
+    }],
+    ['🗑️ Svuota', false, () => { closeMenu(); clearIsland(); }],
+  ]);
+  row(isl, null, [['📤 Esporta', false, exportIsland], ['📥 Importa', false, () => $('#import-file').click()]]);
+
+  const atm = section('🌤️ Atmosfera');
+  row(atm, 'Ora', world.times.map((t, i) => [t.icon + ' ' + t.name, world.timeIndex === i, () => { world.setTime(i); showTimeIcon(); scheduleSave(); }]));
+  row(atm, 'Ciclo giorno e notte', [['Automatico', !!prefs.autoCycle, () => setAuto(true)], ['Fermo', !prefs.autoCycle, () => setAuto(false)]]);
+  row(atm, 'Meteo', world.weathers.map((w) => [w.icon + ' ' + w.name, (prefs.weather || 'sereno') === w.id, () => setWeather(w.id)]));
+
+  const gfx = section('🎨 Grafica');
+  row(gfx, 'Qualità', Object.entries(QUALITY).map(([k, q]) => [q.label, prefs.quality === k, () => { prefs.quality = k; savePrefs(); applyQuality(); }]));
+  row(gfx, 'Effetto miniatura', [['Sì', !!prefs.tilt, () => setTilt(true)], ['No', !prefs.tilt, () => setTilt(false)]]);
+
+  const ctl = section('👆 Comandi');
+  row(ctl, 'Piazzamento', [
+    ['Con conferma ✓', !prefs.quick, () => { prefs.quick = false; savePrefs(); }],
+    ['Rapido', !!prefs.quick, () => { prefs.quick = true; savePrefs(); }],
+  ]);
+  row(ctl, 'Suono', [['🔊 Sì', !audio.isMuted(), () => { audio.unlock(); audio.setMuted(false); }], ['🔇 No', audio.isMuted(), () => audio.setMuted(true)]]);
+  row(ctl, null, [['❔ Guida completa', false, () => { closeMenu(); openHelp(); }]]);
+}
+
+function openMenu() {
+  renderMenu();
+  menuEl.classList.add('show');
+}
+function closeMenu() {
+  menuEl.classList.remove('show');
+}
+$('#btn-menu').addEventListener('click', openMenu);
+$('#menu-close').addEventListener('click', closeMenu);
+
+function clearIsland() {
+  if (!window.confirm("Vuoi svuotare l'isola? Potrai comunque annullare.")) return;
+  const a = newAction();
+  a.pathSnapshot = snapshotPath();
+  a.heightSnapshot = snapshotHeights();
+  deselect();
+  for (const o of objects.slice()) {
+    remove(o);
+    a.removed.push(o);
+  }
+  setPath(new Float32Array(a.pathSnapshot.length));
+  resetHeights();
+  commit(a);
+  toast('Isola pulita. ↶ per tornare indietro');
+}
+
+function exportIsland() {
+  const text = JSON.stringify(serialize());
+  const blob = new Blob([text], { type: 'application/json' });
+  const name = `borgo-${new Date().toISOString().slice(0, 10)}.json`;
+  const file = new File([blob], name, { type: 'application/json' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file], title: 'La mia isola di Borgo di Mare' }).catch(() => {});
+  } else {
+    downloadBlob(blob, name);
+  }
+}
+
+$('#import-file').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const p = JSON.parse(await f.text());
+    if (!p || !Array.isArray(p.objects)) throw new Error('bad');
+    if (!window.confirm('Caricare questa isola nel salvataggio attuale?')) return;
+    applySave(p);
+    save();
+    closeMenu();
+    toast('📥 Isola importata');
+  } catch {
+    toast('Questo file non sembra un\'isola di Borgo di Mare');
+  }
 });
 
 // ---------- Start ----------
 
-if (!load()) starterIsland();
-refreshAll();
+applyQuality();
+loadSlot(prefs.slot || 0);
 showTimeIcon();
-showSound();
-setTool('house');
-if (!prefs.helpSeen) setTimeout(openHelp, 600);
+world.autoCycle = !!prefs.autoCycle;
+if (prefs.weather && prefs.weather !== 'sereno') world.setWeather(prefs.weather);
+post.setTilt(!!prefs.tilt);
+setTool(toolName);
+if (prefs.helpSeen !== 3) setTimeout(openHelp, 600);
 
 function easeOutBack(t) {
   const c1 = 1.70158, c3 = c1 + 1;
   return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
 }
 
-// Lowers the resolution a bit if the phone struggles, so it stays smooth.
+// If the phone struggles, step the quality down once, so it stays smooth.
 let frameAvg = 16;
 let perfCheck = 0;
+let lowered = 0;
 function adaptQuality(dtMs) {
   frameAvg += (dtMs - frameAvg) * 0.05;
   perfCheck += dtMs;
-  if (perfCheck < 2500) return;
+  if (perfCheck < 3000) return;
   perfCheck = 0;
-  if (frameAvg > 30 && pixelRatio > 1) {
-    pixelRatio = Math.max(1, pixelRatio - 0.25);
-    renderer.setPixelRatio(pixelRatio);
-    resize();
+  if (frameAvg > 34 && lowered < 2 && prefs.quality !== 'bassa') {
+    lowered++;
+    prefs.quality = prefs.quality === 'alta' ? 'media' : 'bassa';
+    savePrefs();
+    applyQuality();
+    toast('Grafica ridotta per restare fluido (cambiala dal menu ⚙️)', 2600);
   }
 }
 
@@ -480,10 +830,15 @@ function frame() {
   const rawDt = clock.getDelta();
   const dt = Math.min(rawDt, 0.05);
   elapsed += dt;
-  input.update(dt);
-  rig.update(dt);
-  world.update(dt, elapsed, camera, rig.target);
+  if (walk.active) walk.update(dt);
+  else {
+    input.update(dt);
+    rig.update(dt);
+  }
+  const focus = walk.active ? walk.position : rig.target;
+  world.update(dt, elapsed, camera, focus);
   decor.update(elapsed, world.night);
+  life.update(dt, elapsed, world.night);
   refreshGhost();
   for (let i = pops.length - 1; i >= 0; i--) {
     const p = pops[i];
@@ -495,11 +850,14 @@ function frame() {
   }
   for (const o of objects) if (o.animate) o.animate(elapsed);
   if (cursor.visible) {
-    const t = tools[toolName];
+    const t = currentHandler();
     cursor.material.color.set(t && t.valid === false ? '#ff6b5a' : '#ffffff');
     cursor.material.opacity = 0.55 + Math.sin(elapsed * 5) * 0.2;
   }
-  renderer.render(scene, camera);
+  if (selGroup.children.length) selMat.opacity = 0.2 + Math.sin(elapsed * 4) * 0.1;
+  selGroup.visible = !walk.active;
+  post.setBloom(world.night);
+  draw();
   if (!first) adaptQuality(rawDt * 1000);
   if (first) {
     first = false;
@@ -511,4 +869,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Handy for debugging from the console
-window.borgo = { objects, rig, world, setTool, undo, tools, variants, renderer };
+window.borgo = { objects, rig, world, setTool, undo, prefs, renderer, walk, select, editor, get tool() { return currentHandler(); } };

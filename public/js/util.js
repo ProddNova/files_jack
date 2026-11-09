@@ -101,65 +101,87 @@ const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
-const _v = new THREE.Vector3();
-const _n = new THREE.Vector3();
-const _nm = new THREE.Matrix3();
 
 // Collects many small shapes into one mesh (one draw call per object).
+// Collects many small shapes into one mesh (one draw call per object).
+// Every triangle also gets texture coordinates (planar, in object units, with
+// "v" pointing up the face) and a material layer from textures.js, so bricks
+// stay level and line up across neighbouring pieces.
 export class GeoBuilder {
-  constructor() {
+  constructor(layer = 0) {
     this.pos = [];
     this.nor = [];
     this.col = [];
+    this.uv = [];
+    this.lay = [];
+    this.layer = layer;
   }
 
   get empty() {
     return this.pos.length === 0;
   }
 
-  addGeo(geo, matrix, color) {
-    const p = geo.attributes.position.array;
-    const n = geo.attributes.normal.array;
-    _nm.getNormalMatrix(matrix);
-    for (let i = 0; i < p.length; i += 3) {
-      _v.set(p[i], p[i + 1], p[i + 2]).applyMatrix4(matrix);
-      _n.set(n[i], n[i + 1], n[i + 2]).applyMatrix3(_nm).normalize();
-      this.pos.push(_v.x, _v.y, _v.z);
-      this.nor.push(_n.x, _n.y, _n.z);
-      this.col.push(color.r, color.g, color.b);
+  _tri(ax, ay, az, bx, by, bz, cx, cy, cz, color, layer) {
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx - ax, vy = cy - ay, vz = cz - az;
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    nx /= nl; ny /= nl; nz /= nl;
+    let tx = 1, tz = 0;
+    if (Math.abs(ny) < 0.92) {
+      const tl = Math.hypot(nz, nx) || 1;
+      tx = nz / tl;
+      tz = -nx / tl;
+    }
+    const bx2 = ny * tz, by2 = nz * tx - nx * tz, bz2 = -ny * tx;
+    const P = this.pos, Nn = this.nor, Cc = this.col, U = this.uv, Ly = this.lay;
+    for (let k = 0; k < 3; k++) {
+      const x = k === 0 ? ax : k === 1 ? bx : cx;
+      const y = k === 0 ? ay : k === 1 ? by : cy;
+      const z = k === 0 ? az : k === 1 ? bz : cz;
+      P.push(x, y, z);
+      Nn.push(nx, ny, nz);
+      Cc.push(color.r, color.g, color.b);
+      U.push(x * tx + z * tz, x * bx2 + y * by2 + z * bz2);
+      Ly.push(layer);
     }
   }
 
-  // shape: a name from UNIT or a geometry. rot: [x, y, z] euler angles.
-  add(shape, pos, scale, color, rot) {
+  addGeo(geo, matrix, color, layer = this.layer) {
+    const p = geo.attributes.position.array;
+    const e = matrix.elements;
+    const t = [];
+    for (let i = 0; i < p.length; i += 3) {
+      const x = p[i], y = p[i + 1], z = p[i + 2];
+      t.push(
+        e[0] * x + e[4] * y + e[8] * z + e[12],
+        e[1] * x + e[5] * y + e[9] * z + e[13],
+        e[2] * x + e[6] * y + e[10] * z + e[14],
+      );
+    }
+    for (let i = 0; i < t.length; i += 9) {
+      this._tri(t[i], t[i + 1], t[i + 2], t[i + 3], t[i + 4], t[i + 5], t[i + 6], t[i + 7], t[i + 8], color, layer);
+    }
+  }
+
+  // shape: a name from UNIT or a geometry. rot: [x, y, z] euler angles (YXZ order).
+  add(shape, pos, scale, color, rot, layer = this.layer) {
     const geo = typeof shape === 'string' ? UNIT[shape] : shape;
     _p.set(pos[0], pos[1], pos[2]);
     _s.set(scale[0], scale[1], scale[2]);
     if (rot) _q.setFromEuler(_e.set(rot[0], rot[1], rot[2], 'YXZ'));
     else _q.identity();
     _m.compose(_p, _q, _s);
-    this.addGeo(geo, _m, color);
+    this.addGeo(geo, _m, color, layer);
   }
 
-  addMatrix(shape, matrix, color) {
-    const geo = typeof shape === 'string' ? UNIT[shape] : shape;
-    this.addGeo(geo, matrix, color);
+  tri(a, b, c, color, layer = this.layer) {
+    this._tri(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], color, layer);
   }
 
-  tri(a, b, c, color) {
-    _v.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-    _n.set(c[0] - a[0], c[1] - a[1], c[2] - a[2]);
-    _v.cross(_n).normalize();
-    for (const p of [a, b, c]) {
-      this.pos.push(p[0], p[1], p[2]);
-      this.nor.push(_v.x, _v.y, _v.z);
-      this.col.push(color.r, color.g, color.b);
-    }
-  }
-
-  quad(a, b, c, d, color) {
-    this.tri(a, b, c, color);
-    this.tri(a, c, d, color);
+  quad(a, b, c, d, color, layer = this.layer) {
+    this.tri(a, b, c, color, layer);
+    this.tri(a, c, d, color, layer);
   }
 
   build() {
@@ -167,6 +189,8 @@ export class GeoBuilder {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    g.setAttribute('aUv', new THREE.Float32BufferAttribute(this.uv, 2));
+    g.setAttribute('aLayer', new THREE.Float32BufferAttribute(this.lay, 1));
     g.computeBoundingSphere();
     return g;
   }

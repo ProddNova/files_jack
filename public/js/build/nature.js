@@ -1,6 +1,6 @@
 import { GeoBuilder, rng, col, clamp } from '../util.js';
 import { getHeight } from '../terrain.js';
-import { MAT, PAL, finish } from './common.js';
+import { MAT, PAL, L, finish } from './common.js';
 
 const LEAF = {
   olive: ['#8f9e6b', '#7f9160', '#a3ad7b', '#93a26e'].map(col),
@@ -23,7 +23,7 @@ const FLOWERS = [
 ];
 
 export const FLOWER_NAMES = FLOWERS.map((f) => f.name);
-export const TREE_TYPES = ['olive', 'pine', 'cypress', 'lemon', 'palm'];
+export const TREE_TYPES = ['olive', 'pine', 'cypress', 'lemon', 'palm', 'bush', 'rock'];
 
 export function pickTreeType(r) {
   const v = r();
@@ -36,9 +36,9 @@ export function pickTreeType(r) {
 
 function olive(S, r, s) {
   const lean = r.range(-0.25, 0.25);
-  S.add('cyl8', [0, 0.25 * s, 0], [0.14 * s, 1.1 * s, 0.14 * s], LEAF.oliveTrunk, [lean, 0, lean * 0.6]);
-  S.add('cyl8', [0.12 * s, 0.85 * s, 0], [0.08 * s, 0.6 * s, 0.08 * s], LEAF.oliveTrunk, [0, 0, -0.5]);
-  S.add('cyl8', [-0.1 * s, 0.8 * s, 0.05], [0.07 * s, 0.5 * s, 0.07 * s], LEAF.oliveTrunk, [0.3, 0, 0.6]);
+  S.add('cyl8', [0, 0.25 * s, 0], [0.14 * s, 1.1 * s, 0.14 * s], LEAF.oliveTrunk, [lean, 0, lean * 0.6], L.BARK);
+  S.add('cyl8', [0.12 * s, 0.85 * s, 0], [0.08 * s, 0.6 * s, 0.08 * s], LEAF.oliveTrunk, [0, 0, -0.5], L.BARK);
+  S.add('cyl8', [-0.1 * s, 0.8 * s, 0.05], [0.07 * s, 0.5 * s, 0.07 * s], LEAF.oliveTrunk, [0.3, 0, 0.6], L.BARK);
   const blobs = r.int(4, 6);
   for (let i = 0; i < blobs; i++) {
     const a = r() * Math.PI * 2, rad = r.range(0.15, 0.55) * s;
@@ -49,7 +49,7 @@ function olive(S, r, s) {
 
 function pine(S, r, s) {
   const lean = r.range(-0.18, 0.18);
-  S.add('cyl8', [0, 1.1 * s, 0], [0.11 * s, 2.6 * s, 0.11 * s], LEAF.pineTrunk, [lean, 0, -lean * 0.5]);
+  S.add('cyl8', [0, 1.1 * s, 0], [0.11 * s, 2.6 * s, 0.11 * s], LEAF.pineTrunk, [lean, 0, -lean * 0.5], L.BARK);
   const top = 2.35 * s;
   S.add('dode', [lean * 1.2 * s, top, 0], [1.25 * s, 0.42 * s, 1.15 * s], r.pick(LEAF.pine), [0, r() * 3, 0]);
   S.add('dode', [lean * 1.2 * s + 0.3 * s, top + 0.28 * s, 0.2 * s], [0.75 * s, 0.32 * s, 0.7 * s], r.pick(LEAF.pine), [0, r() * 3, 0]);
@@ -57,14 +57,14 @@ function pine(S, r, s) {
 }
 
 function cypress(S, r, s) {
-  S.add('cyl8', [0, 0.1, 0], [0.1 * s, 0.6, 0.1 * s], LEAF.pineTrunk);
+  S.add('cyl8', [0, 0.1, 0], [0.1 * s, 0.6, 0.1 * s], LEAF.pineTrunk, null, L.BARK);
   const tall = r.range(1.3, 1.8);
   S.add('ico', [0, 1.4 * s * tall / 1.55, 0], [0.45 * s, 1.4 * s * tall / 1.55, 0.45 * s], r.pick(LEAF.cypress), [0, r() * 3, 0]);
   S.add('ico', [0, 2.55 * s * tall / 1.55, 0], [0.25 * s, 0.7 * s, 0.25 * s], r.pick(LEAF.cypress), [0, r() * 3, 0]);
 }
 
 function lemon(S, r, s) {
-  S.add('cyl8', [0, 0.25, 0], [0.09 * s, 0.9 * s, 0.09 * s], LEAF.oliveTrunk);
+  S.add('cyl8', [0, 0.25, 0], [0.09 * s, 0.9 * s, 0.09 * s], LEAF.oliveTrunk, null, L.BARK);
   S.add('ico', [0, 0.95 * s, 0], [0.6 * s, 0.52 * s, 0.6 * s], r.pick(LEAF.bush), [0, r() * 3, 0]);
   for (let i = 0; i < 10; i++) {
     const a = r() * Math.PI * 2, e = r.range(-0.4, 0.9);
@@ -80,7 +80,7 @@ function palm(S, r, s) {
   for (let i = 0; i < segs; i++) {
     const h = 0.48 * s;
     const tilt = bend * i;
-    S.add('cyl8', [x, y + h / 2, 0], [0.13 * s - i * 0.008, h, 0.13 * s - i * 0.008], i % 2 ? LEAF.palmTrunk : LEAF.palmTrunk.clone().multiplyScalar(0.85), [0, 0, -tilt]);
+    S.add('cyl8', [x, y + h / 2, 0], [0.13 * s - i * 0.008, h, 0.13 * s - i * 0.008], i % 2 ? LEAF.palmTrunk : LEAF.palmTrunk.clone().multiplyScalar(0.85), [0, 0, -tilt], L.BARK);
     x += Math.sin(tilt) * h;
     y += Math.cos(tilt) * h;
   }
@@ -94,16 +94,34 @@ function palm(S, r, s) {
     const a = r() * Math.PI * 2;
     S.add('box', [x + Math.sin(a) * 0.25 * s, y + 0.08 * s, Math.cos(a) * 0.25 * s], [0.18 * s, 0.03, 0.6 * s], r.pick(LEAF.palm), [-0.35, a, 0]);
   }
-  S.add('ico', [x, y - 0.18 * s, 0], [0.2 * s, 0.14 * s, 0.2 * s], col('#9c6b2e'));
+  S.add('ico', [x, y - 0.18 * s, 0], [0.2 * s, 0.14 * s, 0.2 * s], col('#9c6b2e'), null, L.BARK);
 }
 
-const TREE_FN = { olive, pine, cypress, lemon, palm };
+function bush(S, r, s) {
+  const n = r.int(3, 5);
+  for (let i = 0; i < n; i++) {
+    const a = r() * Math.PI * 2, rad = r.range(0, 0.35) * s;
+    S.add('ico1', [Math.cos(a) * rad, 0.3 * s, Math.sin(a) * rad], [r.range(0.3, 0.45) * s, r.range(0.28, 0.4) * s, r.range(0.3, 0.45) * s], r.pick(LEAF.bush), [r(), r() * 3, 0], L.LEAF);
+  }
+}
+
+const ROCKS = ['#a39b8d', '#8f877b', '#b3aa9a'].map(col);
+function rock(S, r, s) {
+  const n = r.int(1, 3);
+  for (let i = 0; i < n; i++) {
+    const a = r() * Math.PI * 2, rad = i ? r.range(0.4, 0.7) * s : 0;
+    const k = (i ? r.range(0.35, 0.55) : r.range(0.6, 0.9)) * s;
+    S.add('dode', [Math.cos(a) * rad, k * 0.35, Math.sin(a) * rad], [k * r.range(0.9, 1.3), k * r.range(0.6, 0.9), k], r.pick(ROCKS), [r(), r() * 3, r()], L.ROCK);
+  }
+}
+
+const TREE_FN = { olive, pine, cypress, lemon, palm, bush, rock };
 
 export function buildTree(d, opts = {}) {
   const r = rng(d.seed);
-  const s = r.range(0.8, 1.25);
-  const S = new GeoBuilder();
-  const rotY = r() * Math.PI * 2;
+  const s = r.range(0.8, 1.25) * clamp(d.s ?? 1, 0.4, 2.5);
+  const S = new GeoBuilder(L.LEAF);
+  const rotY = d.ang ?? r() * Math.PI * 2;
   (TREE_FN[d.type] || olive)(S, r, s);
   const group = finish([[S, MAT.solid]], opts.ghost);
   const groundY = () => getHeight(d.x, d.z) - 0.05;
@@ -111,8 +129,9 @@ export function buildTree(d, opts = {}) {
   group.rotation.y = rotY;
   return {
     group,
-    bounds: { x: d.x, z: d.z, r: 0.6 },
-    hitDist: (x, z) => Math.max(Math.hypot(x - d.x, z - d.z) - 0.4, 0),
+    bounds: { x: d.x, z: d.z, r: 0.6 * s },
+    solids: d.type === 'rock' ? [{ type: 'circle', x: d.x, z: d.z, r: 0.6 * s }] : [{ type: 'circle', x: d.x, z: d.z, r: 0.15 * s }],
+    hitDist: (x, z) => Math.max(Math.hypot(x - d.x, z - d.z) - 0.4 * s, 0),
     groundY,
   };
 }
@@ -120,7 +139,8 @@ export function buildTree(d, opts = {}) {
 export function buildFlower(d, opts = {}) {
   const r = rng(d.seed);
   const kind = FLOWERS[clamp(d.variant | 0, 0, FLOWERS.length - 1)];
-  const S = new GeoBuilder();
+  const S = new GeoBuilder(L.LEAF);
+  const k = clamp(d.s ?? 1, 0.4, 2.5);
   if (kind.spikes) {
     for (let i = 0; i < 10; i++) {
       const a = r() * Math.PI * 2, rad = r.range(0, 0.3);
@@ -144,10 +164,11 @@ export function buildFlower(d, opts = {}) {
   const group = finish([[S, MAT.solid]], opts.ghost);
   const groundY = () => getHeight(d.x, d.z) - 0.03;
   group.position.set(d.x, groundY(), d.z);
-  group.rotation.y = r() * Math.PI * 2;
+  group.rotation.y = d.ang ?? r() * Math.PI * 2;
+  group.scale.setScalar(k);
   return {
     group,
-    bounds: { x: d.x, z: d.z, r: 0.4 },
+    bounds: { x: d.x, z: d.z, r: 0.4 * k },
     hitDist: (x, z) => Math.max(Math.hypot(x - d.x, z - d.z) - 0.3, 0),
     groundY,
   };

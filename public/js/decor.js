@@ -38,9 +38,11 @@ function scatter(r, count, test) {
 
 export function createDecor(scene, { lowPower }) {
   const r = rng(77);
-  const tufts = scatter(r, lowPower ? 1500 : 2800, (x, z) => getHeight(x, z) > 0.5);
-  const flowers = scatter(r, lowPower ? 450 : 800, (x, z) => getHeight(x, z) > 0.6);
-  const rocks = scatter(r, 90, (x, z) => { const h = getHeight(x, z); return h > -0.3 && h < 0.7; });
+  // Scattered over the whole island area; refresh() hides what ends up in water
+  const any = () => true;
+  const tufts = scatter(r, lowPower ? 1800 : 3400, any);
+  const flowers = scatter(r, lowPower ? 500 : 900, any);
+  const rocks = scatter(r, 140, any);
 
   const grassMesh = new THREE.InstancedMesh(tuftGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 1 }), tufts.length);
   grassMesh.receiveShadow = true;
@@ -95,7 +97,7 @@ export function createDecor(scene, { lowPower }) {
     };
     place(grassMesh, tufts, 0.45, 99, -0.02, (out, k) => out.set(k, k, k));
     place(flowerMesh, flowers, 0.55, 99, 0.2, (out, k) => out.set(k, k, k));
-    place(rockMesh, rocks, -0.4, 99, 0.02, (out, k, p) => out.set(k * 0.35, k * 0.22, k * 0.28));
+    place(rockMesh, rocks, -0.4, 0.9, 0.02, (out, k, p) => out.set(k * 0.35, k * 0.22, k * 0.28));
   }
 
   // ---------- Laundry hung between nearby houses ----------
@@ -159,7 +161,7 @@ export function createDecor(scene, { lowPower }) {
   }
 
   // ---------- Fireflies ----------
-  const flyBase = scatter(r, 70, (x, z) => getHeight(x, z) > 0.6);
+  const flyBase = scatter(r, 70, any);
   const flyPos = new Float32Array(flyBase.length * 3);
   const flyGeo = new THREE.BufferGeometry();
   flyGeo.setAttribute('position', new THREE.BufferAttribute(flyPos, 3));

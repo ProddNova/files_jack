@@ -94,3 +94,42 @@ export function setMuted(m) {
   try { localStorage.setItem('borgo-muted', m ? '1' : '0'); } catch { /* ignore */ }
   if (master) master.gain.setTargetAtTime(m ? 0 : 0.9, ctx.currentTime, 0.05);
 }
+
+// Soft footstep for the first-person walk.
+export function step() {
+  if (!ctx || muted) return;
+  const t = ctx.currentTime;
+  const src = ctx.createBufferSource();
+  src.buffer = makeNoiseBuffer(0.08);
+  const f = ctx.createBiquadFilter();
+  f.type = 'bandpass';
+  f.frequency.value = 500 + Math.random() * 300;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.25, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+  src.connect(f).connect(g).connect(master);
+  src.start(t);
+}
+
+// Rain hiss, faded in and out.
+let rainGain = null;
+export function setRain(on) {
+  if (!ctx) return;
+  if (!rainGain) {
+    const src = ctx.createBufferSource();
+    const len = ctx.sampleRate * 2;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    src.buffer = buf;
+    src.loop = true;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 1200;
+    rainGain = ctx.createGain();
+    rainGain.gain.value = 0;
+    src.connect(hp).connect(rainGain).connect(master);
+    src.start();
+  }
+  rainGain.gain.setTargetAtTime(on ? 0.06 : 0, ctx.currentTime, 0.6);
+}

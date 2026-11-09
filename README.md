@@ -1,90 +1,66 @@
 # Borgo di Mare
 
-Un piccolo gioco rilassante di costruzione, pensato per iPhone: costruisci un paesino ligure su un'isola.
-Muretti a secco, case colorate con le persiane verdi, torri saracene con la bandiera di Genova, creuze in mattoni, ulivi, pini, cipressi e limoni, gozzi in mare.
-
+Un gioco rilassante di costruzione per iPhone (e computer): costruisci un paesino ligure, o un castello, su un'isola.
 È un gioco **originale** (codice, grafica e nome), ispirato al genere dei "cozy builder". Gira nel browser, senza installare niente.
 
-## Come si gioca
+La guida completa compare al primo avvio (e con il tasto ❔).
 
-**Gesti**
-- **1 dito sull'isola**: usi lo strumento scelto. L'azione parte dopo un attimo, così se appoggi un secondo dito diventa un gesto della camera e non costruisci per sbaglio.
-- **1 dito sul mare o sul cielo**: giri la vista (con qualsiasi strumento).
-- **2 dita**: trascina per spostarti, pizzica per lo zoom, ruota le dita per girare. Ogni gesto parte solo oltre una piccola soglia, così lo zoom non fa anche girare la vista.
-- Più ti avvicini, più la camera si abbassa: da vicino vedi le facciate, da lontano tutta l'isola.
-- Lasciando il dito la vista scivola ancora un po' (inerzia). 🎯 ricentra, ↶ annulla.
+## Cosa si può fare
 
-**Strumenti** (sopra la barra scegli la variante)
+- **Borgo**: casa ligure, palazzo, villetta col pergolato, chiesa a fasce, mulino a vento, campanile, torre saracena, faro.
+- **Castello**: mura che mettono da sole le torri agli angoli, torrione, torretta a guglia, mastio, porta con saracinesca, torre quadrata.
+- **Muri e ponti**: muretto, mura, staccionata, siepe, ponti di pietra o legno.
+- **Natura, creuze, terreno**: alberi, palme, massi, fiori; strade di ciottoli; alza, abbassa, spiana (scavando nasce un laghetto).
+- **Arredo**: lampioni, fontana, pozzo, panchine, vasi, bancarella, botti, carretto, falò, gazebo, orto, statua, cristallo, gatti, pecore, barche.
+- **Modifica tutto dopo**: tocca un elemento e cambi rotazione, larghezza, profondità, piani o altezza, tetto, colori, pietra. Duplica, elimina, sposta trascinando.
+- **Passeggiata in prima persona** con joystick, collisioni e ponti calpestabili.
+- **Vita e atmosfera**: abitanti che passeggiano, panni stesi, ciclo giorno e notte, pioggia, nuvole, lucciole, faro acceso.
+- **Isole**: 3 salvataggi, nuova isola casuale, esporta e importa in un file.
 
-| Strumento | Varianti | Note |
-|---|---|---|
-| 🏠 Casa | Casa ligure, Palazzo, Villetta, Chiesa | tocca o trascina per la facciata; tocca una casa esistente per cambiarle aspetto |
-| 🏰 Torre | Saracena, Quadrata, Campanile, Faro | si aggancia agli angoli e sopra i muri; il faro di notte gira |
-| 🧱 Muro | Muretto, Mura merlate, Staccionata, Siepe | si apre da solo dove passa una creuza (le mura fanno un portale) e dove incontra una casa |
-| 🥾 Creuza | | le case vicine si girano verso la strada e non ci si costruisce sopra |
-| 🌳 Natura | Misti, Ulivi, Pini, Cipressi, Palme, Fiori | |
-| 🪑 Arredo | Lampione, Pozzo, Panchina, Vasi, Barca | i lampioni si accendono di notte, le barche vanno in acqua |
-| ⛰️ Terreno | Alza, Abbassa, Spiana | tieni premuto; scavando sotto il livello del mare nasce un laghetto |
-| 🧹 Gomma | | toglie oggetti e creuze |
+## Comandi su iPhone
 
-**Automatico**
-- Le case non si sovrappongono: se il posto è occupato, la casa si sposta nel punto libero più vicino (anteprima rossa se non c'è spazio).
-- Case vicine si allineano a schiera, con le facciate in linea.
-- Tra case vicine compaiono i panni stesi; erba, fiori e sassi spariscono sotto edifici e strade.
-- In alto: ❔ guida, ☀️ ora del giorno, 📷 foto, 🔊 suono, 🗑️ svuota (si può annullare). L'isola si salva da sola.
+- **Tocco** = anteprima, poi **✓** per costruire. Un trascinamento non costruisce mai: gira la vista. (Nel menu si può attivare il piazzamento rapido.)
+- **1 dito** sul mare o sul cielo, o lontano dall'anteprima: ruota la vista.
+- **2 dita**: sposta, pizzica per lo zoom, ruota. Ogni gesto parte solo oltre una soglia, così non si mescolano.
+- Muri, creuze, alberi e terreno si disegnano trascinando: l'azione parte dopo un attimo, così un secondo dito la trasforma in gesto della camera.
 
 ## Pubblicarlo su Render
 
-È un sito statico: niente server e niente build. Render pubblica la cartella `public/`.
+Sito statico, nessuna build. Render pubblica la cartella `public/`.
 
-**Opzione A, Blueprint (più veloce):**
-1. Su [render.com](https://render.com) → **New** → **Blueprint**.
-2. Scegli questo repository: Render legge `render.yaml` e crea il sito da solo.
+1. **New** → **Blueprint** (legge `render.yaml`), oppure **New** → **Static Site** con Publish Directory `public` (va bene anche vuota: l'`index.html` nella cartella principale rimanda al gioco).
+2. Su iPhone apri il link con Safari → Condividi → **Aggiungi alla schermata Home**.
 
-**Opzione B, a mano:**
-1. **New** → **Static Site** → scegli il repository.
-2. Build Command: lascialo vuoto (o `echo ok`).
-3. Publish Directory: `public`. Va bene anche vuoto: l'`index.html` nella cartella principale rimanda al gioco.
-
-Dopo il deploy, apri l'indirizzo `https://...onrender.com` su iPhone con **Safari** → tasto Condividi → **Aggiungi alla schermata Home**. Si apre a tutto schermo come un'app.
-
-## Provarlo in locale
-
-```bash
-python3 -m http.server 8000 -d public
-```
-
-Poi apri `http://localhost:8000`. Serve un server: aprendo `index.html` con doppio clic i moduli JavaScript non partono (il browser li blocca per sicurezza).
+In locale: `python3 -m http.server 8000 -d public` e apri `http://localhost:8000`.
 
 ## Come è fatto (e perché)
 
 ```
-public/
-  index.html            pagina, barre, guida
-  style.css             interfaccia, margini per notch e home bar
-  js/main.js            oggetti, annulla, salvataggio, pulsanti, ciclo di disegno
-  js/input.js           tocchi e gesti (attesa anti-errore, soglie, mare = rotazione)
-  js/controls.js        camera: inerzia, inclinazione legata allo zoom
-  js/tools.js           cosa fa ogni strumento
-  js/placement.js       impronte, collisioni, posto libero più vicino, allineamenti
-  js/terrain.js         isola, altezze modificabili, creuze, mappa altezze per l'acqua
-  js/world.js           cielo col sole, mare con schiuma, luci, ora del giorno
-  js/decor.js           erba, fiori, sassi, panni stesi, lucciole
-  js/build/*.js         case, torri, muri, alberi, arredi (tutto generato dal codice)
-  js/audio.js           onde e suoni generati al volo
-  js/util.js            numeri casuali con seme, rumore, unione delle geometrie
-  vendor/three.module.min.js   Three.js r169 (licenza MIT)
+public/js/
+  main.js        oggetti, annulla, selezione, salvataggi, menu, ciclo di disegno
+  input.js       tocchi e gesti (tocco, trascina, soglie, mare = rotazione)
+  tools.js       strumenti: anteprima da confermare, tratti, pennelli, modifica
+  editor.js      pannello di modifica (cursori, tetti, colori, ruota, duplica)
+  walk.js        prima persona: joystick, sguardo, collisioni
+  life.js        abitanti (due mesh "instanced" per tutti)
+  textures.js    texture procedurali disegnate dalla GPU
+  shaders.js     aggiunte agli shader: texture, rilievo, ombra di contatto, terreno a strati
+  post.js        bagliore notturno (bloom) ed effetto miniatura
+  world.js       cielo, sole, riflessi del cielo, mare, meteo, barche, gabbiani
+  terrain.js     isola generata da un seme, altezze modificabili, creuze
+  placement.js   impronte, collisioni, allineamenti
+  decor.js       erba, fiori, sassi, panni stesi, lucciole
+  build/*.js     case, torri, muri, ponti, natura, arredi
 ```
 
-Alcune scelte, così capisci il ragionamento e non solo il codice:
+Alcune scelte, per capire il ragionamento:
 
-- **Tutto è generato dal codice, niente modelli 3D.** Ogni casa nasce da un "seme" (un numero). Lo stesso seme dà sempre la stessa casa, quindi per salvare basta memorizzare posizione + seme, non la geometria. Il salvataggio pesa pochi KB.
-- **Una mesh per oggetto.** Una casa è fatta da decine di parallelepipedi (finestre, persiane, cornici), ma `GeoBuilder` li unisce in un'unica geometria con i colori nei vertici. Per la GPU del telefono contano soprattutto le *draw call* (quante volte disegna): una per casa invece di cinquanta.
-- **Il dito "colpisce" il terreno con un calcolo, non con il raycast di Three.js.** Il terreno è una griglia di altezze: si cammina lungo il raggio finché si finisce sotto terra, poi si affina. È molto più leggero che testare migliaia di triangoli a ogni movimento del dito.
-- **Pointer Events** invece di eventi touch o mouse separati: lo stesso codice funziona con dito, mouse e Apple Pencil. `touch-action: none` sul canvas impedisce a Safari di fare zoom o scroll della pagina mentre giochi.
-- **Collisioni con le forme giuste.** Le case sono rettangoli ruotati, le torri cerchi, i muri linee. Per sapere se due rettangoli ruotati si toccano uso il *Separating Axis Theorem*: se trovi una direzione in cui le loro "ombre" non si sovrappongono, non si toccano.
-- **L'acqua sa dov'è la riva.** Le altezze del terreno finiscono in una piccola texture che lo shader dell'acqua legge: dove il fondale è basso l'acqua schiarisce e fa la schiuma. Per questo anche un laghetto scavato ha la sua riva.
-- **Qualità adattiva.** Se il telefono fatica (frame oltre ~30 ms), la risoluzione scende un po' da sola.
-- **Three.js è incluso nel repo** invece che preso da un CDN: niente dipendenze esterne, funziona anche se il CDN è giù.
+- **Texture disegnate dalla GPU.** Uno shader dipinge 16 texture ripetibili (intonaco, pietra, mattoni, coppi, ardesia, legno, fogliame, ciottoli, erba, sabbia, roccia, acqua...) in pochi millisecondi. Generarle in JavaScript avrebbe richiesto secondi su un telefono. Ogni texture ha anche un'altezza: lo shader la usa per inclinare la luce (*bump mapping*), così le fughe tra le pietre sembrano scavate.
+- **Una sola texture array.** Tutte le texture stanno in un unico "pacco" e ogni triangolo porta il numero del suo strato: così un'intera casa resta una sola chiamata di disegno.
+- **Coordinate texture automatiche.** Ogni faccia proietta la texture sul proprio piano con l'asse "v" verso l'alto: i mattoni restano orizzontali e si allineano tra pezzi vicini, senza dover "srotolare" a mano i modelli.
+- **Riflessi realistici.** Il cielo viene trasformato in una mappa di riflessi (PMREM): acqua, vetri e tetti riflettono il colore del cielo di quel momento.
+- **Ombra di contatto economica.** Lo shader conosce l'altezza del terreno (dalla stessa mappa che usa l'acqua per la schiuma) e scurisce dolcemente la base degli oggetti: tutto sembra appoggiato, senza effetti costosi come l'SSAO.
+- **Anteprima da confermare.** Su telefono il dito copre quello che tocchi ed è facile sbagliare: separare "scegli dove" da "costruisci" elimina gli errori senza rallentare chi sa cosa vuole (c'è comunque il piazzamento rapido).
+- **Qualità adattiva.** Se il telefono fatica, la grafica scende da sola di livello. Si può cambiare dal menu.
 
-Idee per continuare: ponti sulle creuze, terrazzamenti a fasce come alle Cinque Terre, pioggia, gatti che camminano sui muretti.
+Licenze: Three.js r169 e i suoi moduli di post-processing sono MIT (vedi `public/vendor/THREE_LICENSE.txt`).
